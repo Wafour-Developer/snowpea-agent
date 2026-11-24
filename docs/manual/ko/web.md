@@ -145,6 +145,36 @@ snowpea web max-mode auto     # 다시 제한 없음(기본값)
 
 직접 운영하는 리버스 프록시(Caddy, nginx)로 TLS를 앞에 두고, 페이지 주소를 `allowedOrigins`에 넣고, `trustProxy: true`로 설정하면 데몬이 방문자의 주소와 `https` 여부를 프록시의 헤더에서 읽습니다. `trustProxy`는 그 프록시 말고는 아무도 이 포트에 닿지 못할 때**만** 켜세요. listener를 루프백(`--host 127.0.0.1`)이나 프록시 전용 네트워크에 bind하거나 방화벽으로 막으면 됩니다. 그렇지 않으면 포트에 직접 닿는 사람이 클라이언트 주소를 마음대로 꾸며 보내 주소별 로그인 제한을 피할 수 있습니다. 데몬은 같은 컴퓨터의 프록시(`127.0.0.1`이나 `::1`에서 온 연결)가 보낸 이 헤더만 믿습니다. 다른 곳에서 온 헤더는 무시하고 연결 자체의 주소를 셉니다. 따라서 다른 호스트에 있는 프록시는 하나의 주소로 취급됩니다.
 
+### 터널로 공개 주소 얻기
+
+`snowpea web`은 터널 프로그램을 통해 공개 HTTPS 주소를 만들 수 있습니다. 포트를 열거나 프록시를 직접 돌리지 않고도 휴대폰이나 다른 네트워크에서 이 컴퓨터에 닿을 수 있습니다. 제공자는 세 가지입니다.
+
+| 제공자 | 필요한 것 | 주소 |
+|---|---|---|
+| `cloudflare-quick` | `cloudflared`; 계정 불필요 | 무작위 `https://….trycloudflare.com`, 시작할 때마다 새로 발급 |
+| `cloudflare` | `cloudflared`, Cloudflare 터널 토큰, 그리고 호스트 이름 | 직접 정한 `https://<호스트 이름>` |
+| `ngrok` | `ngrok`과 authtoken | ngrok이 주는 `https://….ngrok-free.app` 주소 |
+
+터널은 **원격 접속이 켜져 있고 웹 비밀번호가 설정되어 있을 때만** 시작합니다(`snowpea web --host … --port …`, `snowpea web password`). 접속 링크만 있는 상태로 공개 주소를 여는 것은 허용되지 않습니다. 리스너는 이 컴퓨터의 루프백(`0.0.0.0` 또는 `127.0.0.1`)에서 닿아야 합니다. 터널 프로그램이 이 컴퓨터에서 리스너에 연결하기 때문입니다.
+
+```bash
+snowpea web tunnel install                      # 터널 프로그램이 없으면 내려받기
+printf '%s\n' "$TOKEN" | snowpea web tunnel token --provider cloudflare   # 또는 ngrok; 표준 입력으로 읽음
+snowpea web tunnel start --provider cloudflare-quick --save   # --save: 다음 시작에도 이 제공자 사용
+snowpea web tunnel status                       # 상태, 주소, 프로그램, 토큰 설정 여부
+snowpea web tunnel stop
+```
+
+설정(`web.remote.tunnel`, 이 컴퓨터에서만 변경 가능): `provider`(`off`, `cloudflare-quick`, `cloudflare`, `ngrok`), `autoStart`(제공자가 정해져 있고 조건이 맞으면 데몬과 함께 시작; 기본값 켜짐), `hostname`(`cloudflare` 터널의 공개 호스트 이름; 이 제공자는 이 값이 없으면 시작하지 않습니다), `binary`(PATH와 `~/.snowpea/bin`보다 먼저 쓸 터널 프로그램 경로).
+
+- **프로그램.** snowpea는 `binary`, PATH, `~/.snowpea/bin` 순서로 찾습니다. `snowpea web tunnel install`은 고정된 버전의 `cloudflared`를 공식 GitHub 릴리스에서 내려받고, sha256이 고정된 값과 일치할 때만 설치합니다. 불일치하면 아무것도 쓰지 않습니다. 고정된 체크섬이 없는 경우(macOS, 그리고 모든 플랫폼의 ngrok)에는 설치하지 않고, 직접 실행할 명령(`brew install cloudflared`, `brew install ngrok`, `snap install ngrok`, `winget install …`)을 보여 줍니다.
+- **토큰.** ngrok authtoken과 Cloudflare 터널 토큰은 `credentials.json`(권한 600)에 저장하며 `settings.json`에는 절대 넣지 않습니다. `snowpea web tunnel token --provider …`(표준 입력으로 한 줄) 또는 클라이언트의 설정 화면으로 입력하세요. 토큰은 명령줄이 아니라 환경 변수로 터널 프로그램에 전달되며, snowpea가 남기거나 보여 주는 모든 내용에서 지워집니다.
+- **재시작.** 터널 프로그램이 멈추면 snowpea는 2초, 4초, 8초 … 최대 60초 간격으로 다시 시작합니다. 한 번도 주소를 띄우지 못한 실행이 연속 다섯 번 나오면 포기하며, 그 이유는 `snowpea web tunnel status`에 나옵니다. 빠른 터널(`cloudflare-quick`)은 재시작할 때마다 새 주소를 받고, 클라이언트는 `web.tunnel.changed` 이벤트로 이를 알게 됩니다.
+- **출처와 프록시 헤더.** 터널이 도는 동안 그 주소는 페이지 WebSocket의 허용된 출처가 되고, 방문자의 주소와 `https` 여부는 터널의 헤더(`CF-Connecting-IP`, `X-Forwarded-*`)에서 읽습니다. 단, 이 컴퓨터에서 온 연결(터널 프로그램이 연결해 오는 곳)에 한해서입니다. `allowedOrigins`에는 아무것도 기록되지 않습니다.
+- **터널을 통한 터미널.** 터널로 연 페이지는 로그인 후 터미널을 볼 수 있습니다. 하지만 터미널을 시작하거나 입력하거나 위험한 옵션을 쓰려면 **터미널 잠금 해제**가 필요합니다. 페이지가 웹 비밀번호를 다시 묻고(`web.tunnel.unlock`), 잠금 해제는 그 로그인 세션 동안 유효합니다. `maxMode`가 `auto`가 아니면 터널을 통해서는 위험한 옵션을 거절합니다.
+
+터널은 주소를 추측할 수 있는 사람 누구에게나 페이지를 열어 줍니다. 그러니 "원격 로그인이란"에 적힌 내용이 모두 적용됩니다. 긴 비밀번호를 쓰고, 필요 없을 때는 터널을 멈추세요.
+
 ## 화면 구성
 
 레이아웃은 DeepSeek Harness 웹 클라이언트를 따릅니다. 세 개의 열이고 가운데가 대화입니다.

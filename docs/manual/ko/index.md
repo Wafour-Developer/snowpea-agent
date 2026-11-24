@@ -27,6 +27,8 @@ snowpea를 막 설치했다면 [설치](install.md)를 읽고, 이어서 [설정
 | [게이트웨이](gateway.md) | Telegram, Discord, Slack에서 에이전트와 대화하고 싶을 때 |
 | [자비스 모드 (베타)](jarvis.md) | 세션을 여러 개 돌리면서 하나의 세션이 모두 지켜보고, 맡긴 일은 결정하고, 나머지는 가져오게 하고 싶을 때 |
 | [외부 세션 (베타)](external-sessions.md) | Claude Code, Codex, agy, Cursor agent 세션을 snowpea에서 이어 갈 때 |
+| [터미널 세션 (베타)](terminals.md) | CLI나 snowpea 세션을 실제 터미널 창에서 돌릴 때, 상태 점, 권한 옵션, `snowpea term`, 자비스가 터미널을 다루는 방식 |
+| [CLI 훅 연동 (베타)](integrations.md) | Claude Code·Codex·Cursor agent·agy의 상태를 snowpea가 보도록 훅을 설치할 때: 바뀌는 파일, 백업, 상태 값 |
 | [원격 세션](remote.md) | ssh로 다른 머신에서 작업할 때 |
 | [샌드박스 세션](sandbox.md) | auto 모드 등 세션을 버려도 되는 Docker 컨테이너에서 실행할 때 |
 | [헤드리스](headless.md) | snowpea를 스크립트로 돌리거나 CI에 엮을 때 |
