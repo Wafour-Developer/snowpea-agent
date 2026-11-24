@@ -1,0 +1,11 @@
+# state: blocked
+# kind: permission
+# rule: legacy_permission_prompt
+# detail: run_command: npm install left-pad
+---
+ Gemini is requesting permission for:
+ run_command: npm install left-pad
+
+ Do you want to proceed?
+ > Yes
+   No

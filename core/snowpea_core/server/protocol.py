@@ -9858,6 +9858,13 @@ class TerminalInfo(Payload):
     options: list[str] = Field(default_factory=list, description="Option ids it was started with.")
     dangerous: bool = Field(default=False, description="Started with a dangerous option.")
     createdAt: str = Field(default="", description="ISO time.")
+    lost: bool = Field(
+        default=False,
+        description=(
+            "The holder is gone with no exit record (a reboot): only the entry is left; "
+            "an external CLI terminal can be resumed from its session id."
+        ),
+    )
 
 
 class TerminalListParams(Payload):
@@ -10005,16 +10012,25 @@ class TerminalReportParams(Payload):
     token: str = Field(description="SNOWPEA_TERMINAL_TOKEN of that terminal.")
     event: str = Field(description="The CLI's hook event name.")
     state: TerminalState | None = None
+    kind: TerminalStateKind | None = Field(
+        default=None, description="With state 'blocked': permission, question or auth."
+    )
     sessionId: str | None = None
     transcriptPath: str | None = None
     message: str | None = None
 
 
 class TerminalDataEvent(Payload):
-    """To the attached viewer connection only; never broadcast."""
+    """To the attached viewer connection only; never broadcast.
+
+    ``seq`` counts the terminal's output bytes up to and including this chunk (the
+    same count as ``TerminalAttachResult.seq``): a chunk follows on when
+    ``seq - len(data)`` equals the previous ``seq``.  A repaint carries the count
+    the repainted screen stands for.
+    """
 
     terminalId: str
-    seq: int
+    seq: int = Field(description="Output bytes so far, through this chunk.")
     data: str = Field(default="", description="base64 PTY output.")
     repaint: bool = Field(
         default=False, description="data is a full repaint (the viewer fell too far behind)."
@@ -13736,6 +13752,13 @@ CAPABILITIES: list[str] = [
     # 1.73.0 (M37): the snowpea TUI takes --session <id> (session.resume, no new
     # session) and emits OSC 7501 status inside a terminal session.
     "tuiSessionAttach",
+    # 1.73.0 (M37 T1): PTY terminals held by the daemon (terminal.* methods and
+    # events) and their status (OSC 7501, screen rules, hook reports).
+    "terminalSessions",
+    "terminalStatus",
+    # 1.73.0 (M37): integration.list|install|uninstall and integration.changed —
+    # snowpea's hook in Claude Code / Codex / Cursor / agy hook configs.
+    "cliIntegrations",
     # 1.73.0 (M37): web.tunnel.status|start|stop|setToken|install|unlock and the
     # web.tunnel.changed event.
     "webTunnel",
@@ -13747,9 +13770,6 @@ CAPABILITIES: list[str] = [
 #: ``not_implemented`` until then.
 PENDING_CAPABILITIES: dict[str, str] = {
     # M37 (1.73.0): each moves into CAPABILITIES when its work package lands.
-    "terminalSessions": "terminal.* methods and events: PTY terminals held by the daemon",
-    "terminalStatus": "TerminalInfo.status: OSC 7501, screen rules and hook-driven states",
-    "cliIntegrations": "integration.list|install|uninstall: CLI hook entries (Claude, Codex, ...)",
     "externalPty": "external.open|create {transport: 'pty'} and ExternalTerminal.kind 'pty'",
 }
 

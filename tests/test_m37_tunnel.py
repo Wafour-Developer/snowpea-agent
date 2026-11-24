@@ -786,3 +786,21 @@ def test_secret_params_are_dropped_from_validation_errors() -> None:
     from snowpea_core.server import rpc
 
     assert {"token", "password"} <= rpc.SECRET_PARAMS
+
+
+async def test_terminal_unlock_is_an_alias_of_web_tunnel_unlock() -> None:
+    from snowpea_core.server import terminal_handlers
+    from snowpea_core.server.protocol import TerminalUnlockParams
+
+    conn = _conn(via=True)
+
+    async def reauth(password: Any) -> str:
+        return "ok" if password == PASSWORD else "failed"
+
+    conn.remote_reauth = reauth
+    handler = terminal_handlers._HANDLERS["terminal.unlock"]  # noqa: SLF001
+    with pytest.raises(Exception):  # noqa: B017 - wrong password
+        await handler(conn, TerminalUnlockParams(password="nope"), SimpleNamespace())
+    result = await handler(conn, TerminalUnlockParams(password=PASSWORD), SimpleNamespace())
+    assert result.unlocked and result.viaTunnel
+    require_terminal_unlock(conn)

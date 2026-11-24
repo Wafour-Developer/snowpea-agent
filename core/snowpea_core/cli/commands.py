@@ -3719,6 +3719,10 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
         "--json", dest="sub_json", action="store_true", help="emit JSON"
     )
 
+    from snowpea_core.cli.integration_cmd import add_arguments as add_integration_arguments
+
+    add_integration_arguments(sub)
+
     for name in PLACEHOLDER_SUBCOMMANDS:
         placeholder_parser = sub.add_parser(name, help=f"{name} (not yet implemented)")
         placeholder_parser.add_argument("rest", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
@@ -4154,6 +4158,10 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
         if action == "stop":
             return await daemon_stop(home)
         return _fail("usage: snowpea daemon status|start|stop", EXIT_USAGE)
+    if subcommand == "integration":
+        from snowpea_core.cli.integration_cmd import integration_command
+
+        return integration_command(args, home)
     return _fail(f"unknown subcommand: {subcommand}", EXIT_USAGE)
 
 

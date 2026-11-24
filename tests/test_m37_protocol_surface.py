@@ -151,6 +151,12 @@ def test_tunnel_methods_are_implemented(name: str, tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("name", [*TERMINAL_METHODS, *INTEGRATION_METHODS])
 def test_stubs_answer_not_implemented_cleanly(name: str, tmp_path: Path) -> None:
+    if name == "terminal.unlock":
+        pytest.skip("terminal.unlock is web.tunnel.unlock's alias (T4), tested in test_m37_tunnel")
+    if name in TERMINAL_METHODS and "terminalSessions" in protocol.CAPABILITIES:
+        pytest.skip("terminalSessions landed (T1): real handlers, tested in test_m37_terminal_*")
+    if name in INTEGRATION_METHODS and "cliIntegrations" in protocol.CAPABILITIES:
+        pytest.skip("cliIntegrations landed (T2): real handlers, tested in test_m37_integration_*")
     core = Core(settings=Settings(), paths=Paths.create(tmp_path / "home"), token="t")
     dispatcher = build_dispatcher(core)
     assert dispatcher.has(name)

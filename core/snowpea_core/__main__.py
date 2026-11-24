@@ -92,10 +92,20 @@ def extend_macos_path(environ: dict[str, str] | None = None) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     raw = list(argv) if argv is not None else sys.argv[1:]
+    if raw[:2] == ["hook", "report"]:
+        # A CLI hook in a snowpea terminal (M37): stdlib only, exits 0 within 2 s.
+        from snowpea_core.terminal.integrations.hook_report import main as hook_report_main
+
+        return hook_report_main(raw[2:])
     extend_macos_path()
     if raw[:1] == ["--run-hook"]:
         # Before anything imports the daemon: a hook child stays small.
         return run_hook_file(raw[1:])
+    if raw[:1] == ["--terminal-holder"]:
+        # A frozen core's terminal holder (M37): ``python -m`` is not available there.
+        from snowpea_core.terminal.holder import main as holder_main
+
+        return holder_main()
     if raw[:2] == ["remote", "up"]:
         # ``snowpea-core remote up …``: the bundled core has no ``snowpea`` console script,
         # and the snowpea browser runs this entry (JSON lines on stdout, no TUI).

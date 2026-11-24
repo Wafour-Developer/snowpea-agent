@@ -111,6 +111,12 @@ CONTROL: tuple[ControlEntry, ...] = (
     ControlEntry("external", "write", "external CLI sessions' state"),
     ControlEntry("logs/approvals.jsonl", "write", "the approval log"),
     ControlEntry("logs/security.jsonl", "write", "the security log"),
+    # M37: the terminals' holder sockets and meta files carry the tokens that
+    # drive a PTY; the hook script runs inside every CLI hook in a terminal.
+    ControlEntry("terminals", "all", "the terminal sessions' sockets and tokens"),
+    ControlEntry("integrations", "write", "which CLI hook integrations snowpea installed"),
+    ControlEntry("hooks/snowpea-agent-state.sh", "write", "the CLI hook integration script"),
+    ControlEntry("hooks/snowpea-agent-state.ps1", "write", "the CLI hook integration script"),
     ControlEntry("hooks.json", "ask", "your own hooks"),
     ControlEntry("hooks", "ask", "your own hooks"),
     ControlEntry("plugins", "ask", "installed plugins"),

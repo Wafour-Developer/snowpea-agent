@@ -17,6 +17,8 @@ from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
     Empty,
+    TerminalUnlockParams,
+    TerminalUnlockResult,
     TunnelInstallParams,
     TunnelSetTokenParams,
     TunnelStartParams,
@@ -121,6 +123,17 @@ async def unlock_handler(
     if callable(mark):
         mark()
     return TunnelUnlockResult(unlocked=True)
+
+
+async def terminal_unlock_handler(
+    conn: RpcConnection, params: TerminalUnlockParams, _core: Core
+) -> TerminalUnlockResult:
+    """``terminal.unlock``: the same check as ``web.tunnel.unlock`` (an alias)."""
+    await remote_grant.reauthenticate(conn, params.password)
+    mark = getattr(conn, "tunnel_mark_unlocked", None)
+    if callable(mark):
+        mark()
+    return TerminalUnlockResult(unlocked=True, viaTunnel=getattr(conn, "via_tunnel", False) is True)
 
 
 def register_tunnel_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:

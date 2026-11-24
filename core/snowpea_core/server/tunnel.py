@@ -248,10 +248,10 @@ class PinnedAsset:
     sha256: str
 
 
-CLOUDFLARED_VERSION = "2026.11.2"
+CLOUDFLARED_VERSION = "2026.10.7"
 _CF = f"https://github.com/cloudflare/cloudflared/releases/download/{CLOUDFLARED_VERSION}"
 #: ``(os, arch)`` -> the file to download.  The sha256 values are the ones the official
-#: release (github.com/cloudflare/cloudflared, tag 2026.11.2) lists in its notes AND as the
+#: release (github.com/cloudflare/cloudflared, tag 2026.10.7) lists in its notes AND as the
 #: asset digest; the two agree for exactly these.  The macOS archives are left out: the
 #: notes and the asset digest disagree there, and ngrok has no versioned official URL, so
 #: ``install`` refuses for them and shows the manual command.
@@ -259,13 +259,13 @@ PINNED: dict[str, dict[tuple[str, str], PinnedAsset]] = {
     "cloudflared": {
         ("linux", "amd64"): PinnedAsset(
             f"{_CF}/cloudflared-linux-amd64",
-            "56f13335143ec0e22772963290683a84a04114a35ec64cbc794a4d39ff9bb8cf"),
+            "1f99fb518b83dec2ba8d870a7cc991d82a77e6196295a3d2754ba17ab9f91872"),
         ("linux", "arm64"): PinnedAsset(
             f"{_CF}/cloudflared-linux-arm64",
-            "04a7b7f08bce85d56b26ffe1fdbfbb21a074495a363d16f0783c40e25b5c5281"),
+            "3df43aedc9ff291d1735b5cb576cb97e0b157488796db2e32b28aecabb445775"),
         ("windows", "amd64"): PinnedAsset(
             f"{_CF}/cloudflared-windows-amd64.exe",
-            "555b46c85582461d189cac30d14ad05480d612613801be9f110b8ce08c5b2113"),
+            "2493dbc168923bb3e59e5e7716f71deced92992eea9acd6e9d74f84ac7751343"),
     },
     "ngrok": {},
 }
