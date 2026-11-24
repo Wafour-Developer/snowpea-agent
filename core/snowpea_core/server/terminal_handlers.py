@@ -183,8 +183,15 @@ def _watch_close(core: Core, conn: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _tunnel_gate(conn: Any, core: Core, *, dangerous: bool = False) -> None:
-    """Over the web tunnel, terminal calls need the unlock (T4's gate, when present)."""
+def _tunnel_gate(conn: Any, core: Core, *, dangerous: bool = False, kind: str = "other") -> None:
+    """A remote login's terminal limits (``web.remote.terminals``, ``maxMode``) and, over
+    the web tunnel, the terminal unlock (T4)."""
+    try:
+        from snowpea_core.server.tunnel import require_remote_terminal_access
+
+        require_remote_terminal_access(conn, core, kind)
+    except ImportError:  # pragma: no cover - the module is part of this package
+        pass
     try:
         from snowpea_core.server.tunnel import (  # type: ignore[import-not-found]
             require_terminal_unlock,
@@ -288,7 +295,7 @@ async def list_handler(_conn: RpcConnection, params: TerminalListParams,
 
 async def create_handler(conn: RpcConnection, params: TerminalCreateParams,
                          core: Core) -> dict[str, Any]:
-    _tunnel_gate(conn, core)
+    _tunnel_gate(conn, core, kind="create")
     manager = ensure_manager(core)
     module = _profiles_module()
     if module is not None and hasattr(module, "existing"):
@@ -332,7 +339,7 @@ async def create_handler(conn: RpcConnection, params: TerminalCreateParams,
 async def attach_handler(conn: RpcConnection, params: TerminalAttachParams,
                          core: Core) -> dict[str, Any]:
     if params.mode == "interactive":
-        _tunnel_gate(conn, core)
+        _tunnel_gate(conn, core, kind="attach")
     manager = ensure_manager(core)
     result = await manager.attach(params.terminalId, conn, params.mode, params.cols, params.rows)
     _watch_close(core, conn)
@@ -354,7 +361,7 @@ def _decode(data: str) -> bytes:
 
 async def write_handler(conn: RpcConnection, params: TerminalWriteParams,
                         core: Core) -> dict[str, Any]:
-    _tunnel_gate(conn, core)
+    _tunnel_gate(conn, core, kind="write")
     await ensure_manager(core).write(params.terminalId, conn, _decode(params.data),
                                      human=params.human)
     return {"ok": True}
@@ -362,7 +369,7 @@ async def write_handler(conn: RpcConnection, params: TerminalWriteParams,
 
 async def resize_handler(conn: RpcConnection, params: TerminalResizeParams,
                          core: Core) -> dict[str, Any]:
-    _tunnel_gate(conn, core)
+    _tunnel_gate(conn, core, kind="resize")
     await ensure_manager(core).resize(params.terminalId, conn, params.cols, params.rows)
     return {"ok": True}
 
@@ -381,14 +388,14 @@ async def read_handler(_conn: RpcConnection, params: TerminalReadParams,
 
 async def send_handler(conn: RpcConnection, params: TerminalSendParams,
                        core: Core) -> dict[str, Any]:
-    _tunnel_gate(conn, core)
+    _tunnel_gate(conn, core, kind="write")
     return await ensure_manager(core).send(params.terminalId, params.text, force=params.force,
                                            submit=params.submit)
 
 
 async def keys_handler(conn: RpcConnection, params: TerminalKeysParams,
                        core: Core) -> dict[str, Any]:
-    _tunnel_gate(conn, core)
+    _tunnel_gate(conn, core, kind="write")
     await ensure_manager(core).keys(params.terminalId, list(params.keys))
     return {"ok": True}
 

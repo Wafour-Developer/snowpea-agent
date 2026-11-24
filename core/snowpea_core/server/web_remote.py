@@ -631,6 +631,8 @@ async def _close_all(sockets: set[web.WebSocketResponse]) -> None:
 AUTH_KEY: web.AppKey[RemoteAuth] = web.AppKey("remote_auth", RemoteAuth)
 TRUST_PROXY_KEY: web.AppKey[bool] = web.AppKey("remote_trust_proxy", bool)
 ORIGINS_KEY: web.AppKey[frozenset[str]] = web.AppKey("remote_origins", frozenset)
+#: Set on the app of the tunnel's dedicated loopback listener (M37 security review H5).
+TUNNEL_LISTENER_KEY: web.AppKey[bool] = web.AppKey("remote_tunnel_listener", bool)
 
 
 def _tunnel(request: web.Request) -> Any:
@@ -642,11 +644,12 @@ def _tunnel(request: web.Request) -> Any:
 def _trust_proxy(request: web.Request) -> bool:
     """The listener's current ``trustProxy`` (kept on its auth so an update in place works).
 
-    While the tunnel runs the forwarded headers count too (M37): the callers still
-    require the peer to be on this machine (:func:`_from_local_proxy`), which is
-    where the tunnel program connects from.
+    On the tunnel's own listener (:data:`TUNNEL_LISTENER_KEY`) the forwarded headers
+    count always (M37): the callers still require the peer to be on this machine
+    (:func:`_from_local_proxy`), which is where the tunnel program connects from.
+    The ordinary listener never believes them just because a tunnel runs.
     """
-    if _tunnel(request) is not None:
+    if _on_tunnel_listener(request):
         return True
     value = getattr(request.app[AUTH_KEY], "trust_proxy", None)
     return bool(request.app[TRUST_PROXY_KEY] if value is None else value)
@@ -655,15 +658,25 @@ def _trust_proxy(request: web.Request) -> bool:
 def _origins(request: web.Request) -> frozenset[str]:
     value = getattr(request.app[AUTH_KEY], "origins", None)
     base = request.app[ORIGINS_KEY] if value is None else value
-    tunnel = _tunnel(request)
+    tunnel = _tunnel(request) if _on_tunnel_listener(request) else None
     origin = getattr(tunnel, "origin", None) if tunnel is not None else None
-    # The tunnel's own origin is allowed at runtime, never written to the settings.
+    # The tunnel's own origin is allowed at runtime on its own listener, never written
+    # to the settings.
     return base | {origin} if isinstance(origin, str) and origin else base
 
 
+def _on_tunnel_listener(request: web.Request) -> bool:
+    """The request came in on the tunnel's dedicated loopback listener."""
+    return request.app.get(TUNNEL_LISTENER_KEY, False) is True
+
+
 def _via_tunnel(request: web.Request) -> bool:
-    """The request's Host is the tunnel's: marked by Host alone, so a request that names
-    the tunnel host but did not come through it only gets the stricter rules."""
+    """Everything on the tunnel's own listener is through the tunnel (decided by the
+    path, never by the Host header, which the public side can set).  On the ordinary
+    listener a Host that is the tunnel's is an additional marker, so a request that
+    names the tunnel host but did not come through it only gets the stricter rules."""
+    if _on_tunnel_listener(request):
+        return True
     tunnel = _tunnel(request)
     if tunnel is None:
         return False
@@ -691,8 +704,10 @@ def _from_local_proxy(request: web.Request) -> bool:
 
 def _client_ip(request: web.Request) -> str:
     if _trust_proxy(request) and _from_local_proxy(request):
-        if _tunnel(request) is not None:
-            # Cloudflare's edge sets this and cloudflared passes it on.
+        tunnel = _tunnel(request) if _on_tunnel_listener(request) else None
+        if tunnel is not None and str(getattr(tunnel, "provider", "")).startswith("cloudflare"):
+            # Cloudflare's edge sets this and cloudflared passes it on.  Over ngrok it is
+            # whatever the visitor sent, so only the cloudflare providers believe it.
             connecting = request.headers.get("CF-Connecting-IP", "").strip()
             if connecting:
                 return connecting
@@ -958,8 +973,13 @@ def create_remote_app(
     sockets: set[web.WebSocketResponse] | None = None,
     trust_proxy: bool = False,
     allowed_origins: list[str] | tuple[str, ...] = (),
+    tunnel_listener: bool = False,
 ) -> web.Application:
-    """The app the remote listener serves; nothing beyond the page needs."""
+    """The app the remote listener serves; nothing beyond the page needs.
+
+    ``tunnel_listener``: this is the dedicated loopback listener a tunnel program
+    connects to; every connection on it is ``via_tunnel``.
+    """
     app = web.Application(client_max_size=MAX_BODY_BYTES, middlewares=[_security_headers])
     app[DISPATCHER_KEY] = dispatcher
     # Shared with the loopback app so shutdown closes these sockets too.
@@ -967,6 +987,7 @@ def create_remote_app(
     app[SOCKETS_KEY] = sockets if sockets is not None else set()
     app[PENDING_KEY] = {}
     app[AUTH_KEY] = auth
+    app[TUNNEL_LISTENER_KEY] = bool(tunnel_listener)
     app[TRUST_PROXY_KEY] = bool(trust_proxy)
     app[ORIGINS_KEY] = frozenset(o.rstrip("/") for o in allowed_origins if o)
     app.router.add_post(WEB_PATH + "login", login)
@@ -1062,6 +1083,42 @@ class RemoteListener:
         self.username = ""
         self.error: str | None = None
         self._lock = asyncio.Lock()
+        #: The tunnel's own loopback listener (M37): same logins, own port.
+        self._tunnel_runner: web.AppRunner | None = None
+        self._tunnel_port = 0
+
+    async def open_tunnel_listener(self) -> int:
+        """Bind (once) a listener on 127.0.0.1 for the tunnel program and return its port.
+
+        It serves the same app and logins; every connection on it is ``via_tunnel``.  The
+        tunnel is pointed here, not at the ordinary listener, so what came through it is
+        known by path and not by a header (M37 security review H5)."""
+        async with self._lock:
+            if self._tunnel_runner is not None:
+                return self._tunnel_port
+            if self.auth is None or self.runner is None:
+                raise ListenError("host", "bad_address", "remote web access is not listening")
+            app = create_remote_app(self.dispatcher, self.auth, connections=self.connections,
+                                    sockets=self.sockets, tunnel_listener=True)
+            runner = web.AppRunner(app, access_log=None)
+            await runner.setup()
+            try:
+                await web.TCPSite(runner, "127.0.0.1", 0).start()
+            except OSError as exc:
+                await runner.cleanup()
+                raise ListenError.of(exc, "127.0.0.1", 0) from exc
+            self._tunnel_runner = runner
+            self._tunnel_port = _bound_port(runner, 0)
+            return self._tunnel_port
+
+    async def close_tunnel_listener(self) -> None:
+        async with self._lock:
+            await self._close_tunnel_locked()
+
+    async def _close_tunnel_locked(self) -> None:
+        runner, self._tunnel_runner, self._tunnel_port = self._tunnel_runner, None, 0
+        if runner is not None:
+            await runner.cleanup()
 
     @property
     def listening(self) -> bool:
@@ -1126,6 +1183,7 @@ class RemoteListener:
             await self._stop_locked()
 
     async def _stop_locked(self) -> None:
+        await self._close_tunnel_locked()
         runner, auth = self.runner, self.auth
         self.runner = None
         self.auth = None
