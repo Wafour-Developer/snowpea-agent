@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.70.0";
+export const PROTOCOL_VERSION = "1.71.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -5248,6 +5248,8 @@ export interface ProviderLoginWebParams {
   actor?: "person" | null;
   /** Login flow to start: 'browser_pkce' or 'google_oauth' (browser), 'device_code' or 'google_adc' (headless), 'oauth_pkce' (OpenRouter). 'web' or an empty value picks the best flow this machine can complete. */
   method: string;
+  /** 1.71.0 (capability providerLoginOpenBrowser): false asks the daemon not to open the system browser for any login method; the client opens verificationUri / verificationUriComplete (in the result and in the loginProgress await_user event) itself. 'google_adc' (gcloud opens the browser on its own) is then refused with login_unsupported, and an automatic pick that would land on it uses 'google_oauth'. Absent or null keeps the default (the daemon opens it where it can). */
+  openBrowser?: boolean | null;
   /** Vendor to log into. */
   vendor: string;
 }

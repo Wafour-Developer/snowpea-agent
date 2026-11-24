@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.70.0` (semver)
+- **Protocol version:** `1.71.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.70.0"
+    "protocolVersion": "1.71.0"
   }
 }
 ```
@@ -106,6 +106,7 @@ Server capabilities advertised in the `system.hello` result:
 - `pageActionAlways`
 - `planAutoApprove`
 - `projectTrust`
+- `providerLoginOpenBrowser`
 - `providerModelsError`
 - `providerStatusEvents`
 - `readOnlyDelegation`
@@ -3176,6 +3177,7 @@ Start a browser-based login flow for a provider. Not from a remote web login (1.
 |---|---|---|---|
 | `actor` | `"person" \| null` | no | Browser marker (security review 3): see ActorParams. |
 | `method` | `string` | yes | Login flow to start: 'browser_pkce' or 'google_oauth' (browser), 'device_code' or 'google_adc' (headless), 'oauth_pkce' (OpenRouter). 'web' or an empty value picks the best flow this machine can complete. |
+| `openBrowser` | `boolean \| null` | no | 1.71.0 (capability providerLoginOpenBrowser): false asks the daemon not to open the system browser for any login method; the client opens verificationUri / verificationUriComplete (in the result and in the loginProgress await_user event) itself. 'google_adc' (gcloud opens the browser on its own) is then refused with login_unsupported, and an automatic pick that would land on it uses 'google_oauth'. Absent or null keeps the default (the daemon opens it where it can). |
 | `vendor` | `string` | yes | Vendor to log into. |
 
 **Result**
