@@ -2289,6 +2289,41 @@ async def _drain_turns(core: Core, session: Session, first: QueuedTurn) -> None:
 drain_turns = _drain_turns
 
 
+#: The vendor tag every adapter puts first: ``qwen (qwen3.8-max): HTTP 401: …``.
+_VENDOR_TAG = re.compile(r"^([A-Za-z0-9][\w.-]*)(?: \([^)]*\))?: ")
+
+
+def _clear_auth_failure(core: Core, session: Session, exc: ProviderError) -> ProviderError:
+    """A chat refused with a 401 becomes the one clear line (1.75.0).
+
+    The refusal is remembered as the key's verify state, so the next turn is
+    refused before it is sent and Settings shows the key as rejected.  An OAuth
+    session's own wording (sign in again) is left alone.
+    """
+    registry = getattr(core, "providers", None)
+    if registry is None or not hasattr(registry, "note_auth_failure"):
+        return exc
+    if getattr(exc, "details", None) or exc.code != "internal":
+        return exc
+    text = str(exc)
+    from snowpea_core.providers.key_verify import is_auth_failure
+
+    if not is_auth_failure(text):
+        return exc
+    tagged = _VENDOR_TAG.match(text)
+    vendor = tagged.group(1) if tagged else ""
+    if not vendor or registry.preset_or_none(vendor) is None:
+        vendor = session.provider or registry.default_vendor()
+    try:
+        state = registry.note_auth_failure(vendor, text)
+    except Exception:  # noqa: BLE001 - never hide the original failure
+        log.debug("could not record the key refusal", exc_info=True)
+        return exc
+    if state is None:
+        return exc
+    return registry.invalid_key_error(vendor, state)
+
+
 async def run_turn(
     core: Core,
     session: Session,
@@ -2387,6 +2422,7 @@ async def run_turn(
     except ProviderError as exc:
         from snowpea_core.commands.registry import _redact_command_text
 
+        exc = _clear_auth_failure(core, session, exc)
         session.history.append(
             ChatMessage(
                 role="assistant",
@@ -2578,6 +2614,11 @@ async def _drive(
     hub = core.hub
     policy: PermissionPolicy = core.policy
     backend = backend_for(core, session)
+    # 1.75.0: a key the vendor refused is not sent again for every turn; the
+    # person gets the one line that says what to fix instead of an HTTP 401.
+    refuse = getattr(core.providers, "refuse_rejected_key", None)
+    if refuse is not None:
+        refuse(session.provider or core.providers.default_vendor())
     own = _RoundModel(
         provider=core.providers.get(session.provider, session.model),
         config=agent_config(core, session),

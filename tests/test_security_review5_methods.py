@@ -63,7 +63,7 @@ TABLE: dict[str, tuple[str, ...]] = {
         "team.start", "team.status", "team.guide.list", "team.guide.get",
         "job.schedule", "job.cancel", "job.delete", "job.runNow", "job.update",
         "settings.get", "setup.catalog", "setup.status", "provider.list", "provider.models",
-        "provider.test", "mcp.list", "mcp.catalog",
+        "provider.test", "provider.verify", "mcp.list", "mcp.catalog",
         "skill.list", "skill.read", "skill.search",
         "memory.list", "memory.search", "memory.write", "memory.delete", "memory.confirm",
         "lsp.status", "lsp.catalog", "lsp.restart",

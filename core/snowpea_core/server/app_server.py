@@ -79,9 +79,11 @@ from snowpea_core.server.protocol import (
     Ok,
     Payload,
     ProviderConfigureParams,
+    ProviderConfigureResult,
     ProviderLoginWebParams,
     ProviderLoginWebResult,
     ProviderRemoveParams,
+    ProviderVerify,
     SecuritySwitchState,
     SettingsAcceptDiskChangeParams,
     SettingsAcceptDiskChangeResult,
@@ -178,6 +180,8 @@ class Core:
     #: The daily background update check; separate from the upgrade watcher so
     #: one never replaces the other.
     update_check_task: Any = None
+    #: 1.75.0: the boot-time check of stored provider keys (never awaited).
+    key_check_task: Any = None
     #: ``(mtime_ns, size)`` of ``settings.json`` as of the last load or save;
     #: :meth:`settings_file_changed` compares against it (CORE-settings-reload).
     settings_stamp: tuple[int, ...] = hot_reload.MISSING
@@ -681,9 +685,33 @@ async def _persist_provider(core: Core, vendor: str, config: dict[str, Any]) -> 
     await core.notify_settings_changed(["providers"])
 
 
+#: ``provider.configure`` keys whose change is checked with the vendor (1.75.0).
+_VERIFIED_KEYS = ("api_key", "token", "base_url")
+
+
+async def _verify_draft(core: Core, vendor: str, config: dict[str, Any]) -> Any:
+    """:meth:`ProviderRegistry.verify_draft` when the change touches the key."""
+    if not any(config.get(key) is not None for key in _VERIFIED_KEYS):
+        return None
+    verify_draft = getattr(core.providers, "verify_draft", None)
+    return await verify_draft(vendor, config) if verify_draft is not None else None
+
+
+def _invalid_key(core: Core, vendor: str, result: Any) -> RpcError:
+    preset = core.providers.preset_or_none(vendor)
+    label = preset.label if preset is not None else vendor
+    said = f": {result.message}" if result.message else ""
+    return RpcError(
+        errors.INVALID_PARAMS,
+        f"The API key for {label} was rejected by the vendor{said}. Nothing was saved; "
+        "check the key, or save it anyway (force).",
+        {"reason": "invalid_key", "vendor": vendor, "verify": result.wire()},
+    )
+
+
 async def provider_configure_handler(
     _conn: RpcConnection, params: ProviderConfigureParams, core: Core
-) -> Ok:
+) -> ProviderConfigureResult:
     """``provider.configure`` — store a vendor's key, base URL and model."""
     from snowpea_core.server.settings_gate import guard_call
 
@@ -760,14 +788,20 @@ async def provider_configure_handler(
         # A patch of nothing but ``None`` is a deliberate "forget this vendor",
         # not the empty call the guard below refuses.
         await _persist_provider(core, params.vendor, config)
-        return Ok(ok=True)
+        return ProviderConfigureResult(ok=True)
     if not config:
         raise RpcError(
             errors.INVALID_PARAMS,
             "provider.configure needs credentials, base_url, or model",
         )
+    # 1.75.0: a key the vendor refuses is not stored unless the person insists.
+    # An unreachable vendor never blocks the save.
+    checked = await _verify_draft(core, params.vendor, config)
+    if checked is not None and checked.state == "invalid" and not params.force:
+        raise _invalid_key(core, params.vendor, checked)
     await _persist_provider(core, params.vendor, config)
-    return Ok(ok=True)
+    verify = ProviderVerify.model_validate(checked.wire()) if checked is not None else None
+    return ProviderConfigureResult(ok=True, verify=verify)
 
 
 async def provider_remove_handler(
@@ -1240,6 +1274,11 @@ class Daemon:
         # is restarted often still asks the network at most once a day.
         if update_mod.check_enabled(settings):
             core.update_check_task = asyncio.ensure_future(update_mod.background_check(core))
+        # 1.75.0: ask the vendors about stored keys nobody has checked, in the
+        # background; answers reach clients as provider.verified.
+        from snowpea_core.server.key_checks import start_key_checks
+
+        core.key_check_task = asyncio.ensure_future(start_key_checks(core, wait=None))
         log.info(
             "snowpea daemon listening on http://%s:%s (ws ws://%s:%s/ws)",
             HOST,
@@ -1462,13 +1501,16 @@ class Daemon:
                     await stop_terminals(self.core)
             # The update watcher polls rather than blocking a thread, so
             # cancelling it returns straight away (CORE-update).
-            for attribute in ("update_task", "update_check_task"):
+            for attribute in ("update_task", "update_check_task", "key_check_task"):
                 task = getattr(self.core, attribute)
                 if task is None:
                     continue
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
                 setattr(self.core, attribute, None)
+            from snowpea_core.providers import key_verify
+
+            key_verify.cancel_inflight()
             await self.core.lifecycle.stop()
             if self.core.keep_awake is not None:
                 await self.core.keep_awake.stop()

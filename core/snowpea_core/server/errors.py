@@ -194,6 +194,12 @@ DETAIL_REASONS: dict[str, tuple[str, str]] = {
         INVALID_PARAMS,
         "a project's security lists may only add entries; details.removed names the rest",
     ),
+    "invalid_key": (
+        INVALID_PARAMS,
+        "1.75.0: the vendor refused the API key (provider.configure without force stores "
+        "nothing; a turn on that provider does not start); details.vendor, details.verify "
+        "(ProviderVerify, with the vendor's own words in message)",
+    ),
     "global_only": (
         INVALID_PARAMS,
         "a project scope tried to set a key only the global settings hold "

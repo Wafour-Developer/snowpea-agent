@@ -918,6 +918,7 @@ REMOTE_LOGIN_ALLOWED: frozenset[str] = REMOTE_LOGIN_METHODS | frozenset({
     "job.preview", "job.runs", "job.nextRunForClient",
     # reads of config and the services a person uses
     "settings.get", "setup.catalog", "setup.status", "provider.list", "provider.models",
+    "provider.verify",
     "provider.test", "mcp.list", "mcp.catalog", "skill.list",
     "skill.read", "skill.search", "memory.list", "memory.search", "memory.write",
     "memory.delete", "memory.confirm", "lsp.status", "lsp.catalog", "lsp.restart",
@@ -991,6 +992,7 @@ BROWSER_OPEN_METHODS: frozenset[str] = frozenset({
     "team.start", "team.status", "team.guide.list", "team.guide.get",
     "job.list", "job.preview", "job.runs", "job.nextRunForClient",
     "settings.get", "setup.catalog", "setup.status", "provider.list", "provider.models",
+    "provider.verify",
     "provider.test", "mcp.list", "mcp.catalog", "skill.list", "skill.read", "skill.search",
     "memory.list", "memory.search", "memory.write", "memory.confirm", "memory.ingest",
     "lsp.status", "lsp.catalog", "lsp.restart", "audio.capabilities", "audio.voices",

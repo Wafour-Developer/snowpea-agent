@@ -433,6 +433,9 @@ async def _configure_providers(ctx: CommandContext) -> list[str]:
     )
     key = _answer_text(key_answers[0] if key_answers else None)
     if key:
+        refused = await _key_refused(ctx, vendor, {"api_key": key})
+        if refused:
+            return [f"providers: {refused}"]
         _store_vendor_key(ctx.core.settings, vendor, key)
         return [f"providers: {vendor} (key saved)"]
     return [f"providers: {vendor}" + ("" if saved else " (no key)")]
@@ -534,6 +537,9 @@ async def _configure_local_server(
         config["api_key"] = key
     if not config:
         return [f"providers: {vendor} unchanged"]
+    refused = await _key_refused(ctx, vendor, config) if key else None
+    if refused:
+        return [f"providers: {refused}"]
     try:
         _configure_vendor(ctx.core, vendor, config)
     except Exception as exc:  # noqa: BLE001 - the registry's refusal, said in words
@@ -558,6 +564,39 @@ def _configure_vendor(core: Any, vendor: str, config: dict[str, Any]) -> None:
         providers = core.settings.providers
         providers[vendor] = {**(providers.get(vendor) or {}), **config}
     core.settings.providers.setdefault("default", vendor)
+
+
+async def _key_refused(ctx: CommandContext, vendor: str, config: dict[str, Any]) -> str | None:
+    """Ask the vendor about the key in ``config`` first (1.75.0).
+
+    ``None`` to store it: the vendor accepted it, could not be reached, or the
+    person chose to keep a refused key anyway.  Otherwise the line to say.
+    """
+    registry = getattr(ctx.core, "providers", None)
+    verify_draft = getattr(registry, "verify_draft", None)
+    if verify_draft is None:
+        return None
+    try:
+        result = await verify_draft(vendor, config)
+    except Exception:  # noqa: BLE001 - a check never blocks a save
+        log.debug("key check for %s failed", vendor, exc_info=True)
+        return None
+    if result is None or result.state != "invalid":
+        return None
+    said = f" ({result.message})" if result.message else ""
+    answers = await _ask(
+        ctx,
+        [
+            choice_question(
+                "Key",
+                f"{vendor} rejected this API key{said}. Save it anyway?",
+                [("no", "No — keep the current setting", True), ("yes", "Save anyway", False)],
+            )
+        ],
+    )
+    if _picked(answers[0] if answers else None) == "yes":
+        return None
+    return f"{vendor}: the API key was rejected{said} — not saved"
 
 
 def _store_vendor_key(settings: Any, vendor: str, key: str) -> None:
@@ -661,6 +700,10 @@ async def cmd_login(ctx: CommandContext, args: str) -> None:
         key = _answer_text(key_answers[0] if key_answers else None)
         if not key:
             await ctx.say(f"{vendor}: nothing entered — left unconfigured")
+            return
+        refused = await _key_refused(ctx, vendor, {"api_key": key})
+        if refused:
+            await ctx.say(refused)
             return
         _store_vendor_key(ctx.core.settings, vendor, key)
         _save(ctx, "providers")

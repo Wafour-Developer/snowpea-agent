@@ -1251,6 +1251,7 @@ async def provider_add_local(
     label: str | None = None,
     vision: bool | None = None,
     as_json: bool = False,
+    force: bool = False,
 ) -> int:
     """``snowpea provider add-local <name> --url …`` → ``provider.configure``.
 
@@ -1284,11 +1285,17 @@ async def provider_add_local(
         # Settles it for this server rather than letting the try-once probe
         # spend a refused request learning it (CORE-vision).
         config["vision"] = vision
+    params: dict[str, Any] = {"vendor": vendor, "config": config}
+    if force:
+        params["force"] = True
     try:
-        await _call(home, "provider.configure", {"vendor": vendor, "config": config})
+        await _call(home, "provider.configure", params)
     except DaemonError as exc:
         return _fail(str(exc), EXIT_NO_DAEMON)
     except RpcCallError as exc:
+        details = exc.details if isinstance(exc.details, dict) else {}
+        if details.get("reason") == "invalid_key":
+            return _fail(f"{exc.message} (--force saves it anyway)", EXIT_USAGE)
         return _fail(f"provider.configure failed ({exc.code}): {exc.message}", EXIT_USAGE)
     if as_json:
         _print_json({"vendor": vendor, "config": {**config, "api_key": "***" if key else None}})
@@ -3124,6 +3131,12 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
         help="this server's model is text-only; never send images",
     )
     provider_add_local_parser.add_argument(
+        "--force",
+        dest="add_force",
+        action="store_true",
+        help="save the key even if the server rejects it",
+    )
+    provider_add_local_parser.add_argument(
         "--json", dest="sub_json", action="store_true", help="emit JSON"
     )
     provider_remove_parser = provider_sub.add_parser(
@@ -4045,6 +4058,7 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
                 label=getattr(args, "label", None),
                 vision=getattr(args, "vision", None),
                 as_json=as_json,
+                force=bool(getattr(args, "add_force", False)),
             )
         if action == "remove":
             return await provider_remove(

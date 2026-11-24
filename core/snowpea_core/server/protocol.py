@@ -3264,6 +3264,48 @@ class HiddenModelUse(Payload):
     )
 
 
+#: Whether the vendor accepted the stored key (1.75.0, capability providerKeyVerify).
+VerifyState = Literal["ok", "invalid", "unreachable", "unchecked"]
+
+
+class ProviderVerify(Payload):
+    """What the vendor said about the stored credential (1.75.0, capability providerKeyVerify).
+
+    One cheap authenticated call per vendor family: ``GET {base}/models`` for an
+    OpenAI-compatible vendor (``/key`` for OpenRouter), Anthropic's and Gemini's
+    model listing, and a one-token chat completion where the listing is missing
+    or public.
+    """
+
+    state: VerifyState = Field(
+        description=(
+            "'ok' the vendor accepted the key (also when it answered 402/429: the key is "
+            "known, the account is out of credit or rate-limited; reason 'quota'); "
+            "'invalid' it refused the key (401, or a body that names a bad key); "
+            "'unreachable' no answer that says either way (network, timeout, 5xx; a save "
+            "is never blocked by it); 'unchecked' not asked yet, or not applicable."
+        )
+    )
+    checkedAt: str | None = Field(
+        default=None, description="When the vendor was asked (ISO-8601 UTC); null if never."
+    )
+    message: str = Field(
+        default="",
+        description=(
+            "The vendor's own words for a refusal or a quota answer, with the key and "
+            "anything that looks like part of it removed. Empty for a plain 'ok'."
+        ),
+    )
+    reason: str | None = Field(
+        default=None,
+        description=(
+            "Finer cause: 'auth' (invalid), 'quota' (ok, out of credit or rate-limited), "
+            "'network' | 'timeout' | 'server' (unreachable), 'pending' (a check is running; "
+            "provider.verified follows), 'disabled' (SNOWPEA_KEY_VERIFY=0), 'no_key'."
+        ),
+    )
+
+
 class ProviderInfo(Payload):
     """One chat provider."""
 
@@ -3342,6 +3384,18 @@ class ProviderInfo(Payload):
         description=(
             "1.60.0: hidden models something still uses. Hiding never rewrites a setting or "
             "stops a run: these keep working, and a surface shows a warning."
+        ),
+    )
+    verify: ProviderVerify | None = Field(
+        default=None,
+        description=(
+            "1.75.0 (capability providerKeyVerify): whether the vendor accepts the stored "
+            "API key. Null for a vendor with no key (unconfigured, or signed in with "
+            "OAuth). 'configured' still only means a credential is stored: a surface shows "
+            "a provider whose verify.state is 'invalid' as not connected and its models as "
+            "unusable. provider.list never waits more than about 2 s for a check; one "
+            "still running reads 'unchecked' with reason 'pending' and provider.verified "
+            "follows."
         ),
     )
 
@@ -3657,6 +3711,22 @@ class ProviderModelsResult(Payload):
             "absent when the vendor answered or publishes no listing."
         ),
     )
+    usable: bool = Field(
+        default=True,
+        description=(
+            "1.75.0 (capability providerKeyVerify): false when the vendor refused the "
+            "stored key (the live listing answered 401, or verify.state is 'invalid'). "
+            "models is then a fallback nobody can run: a picker shows it disabled, with "
+            "authError."
+        ),
+    )
+    authError: str | None = Field(
+        default=None,
+        description=(
+            "1.75.0: with usable false, the one line to show ('API key for Qwen was "
+            "rejected — update it in Settings → Providers'), the vendor's words after it."
+        ),
+    )
     vision: dict[str, bool] = Field(
         default_factory=dict,
         description=(
@@ -3732,6 +3802,54 @@ class ProviderConfigureParams(Payload):
     config: dict[str, Any] = Field(
         default_factory=dict, description="Vendor-specific settings, including credentials."
     )
+    force: bool | None = Field(
+        default=None,
+        description=(
+            "1.75.0 (capability providerKeyVerify): store the key even though the vendor "
+            "refused it ('Save anyway'). Without it a refused key is not stored: "
+            "invalid_params with details {reason: 'invalid_key', vendor, verify}."
+        ),
+    )
+
+
+class ProviderConfigureResult(Ok):
+    """``provider.configure`` result (1.75.0 adds ``verify``)."""
+
+    verify: ProviderVerify | None = Field(
+        default=None,
+        description=(
+            "1.75.0 (capability providerKeyVerify): what the vendor said about the key "
+            "just stored. Present when the call set an API key, a token or a base URL of "
+            "a vendor that authenticates with a key; 'unreachable' never blocks the save, "
+            "'invalid' is only stored with force."
+        ),
+    )
+
+
+class ProviderVerifyParams(Payload):
+    """``provider.verify`` (1.75.0, capability providerKeyVerify)."""
+
+    actor: Actor | None = Field(default=None, description=ACTOR_DESCRIPTION)
+    vendor: str = Field(description="Vendor whose stored key to check again now.")
+
+
+class ProviderVerifyResult(Payload):
+    vendor: str = Field(description="Vendor checked.")
+    verify: ProviderVerify = Field(
+        description="The fresh answer; 'unchecked' for a vendor with no key (or OAuth)."
+    )
+
+
+class ProviderVerifiedNotification(Payload):
+    """``provider.verified`` (1.75.0): a key check finished with a new answer.
+
+    Sent when a check that provider.list started in the background (a stored key
+    nobody had checked since the daemon started) or provider.verify ends, so a
+    settings page or a picker can update the row without polling.
+    """
+
+    vendor: str = Field(description="Vendor the check was for.")
+    verify: ProviderVerify = Field(description="The answer.")
 
 
 class ProviderRemoveParams(Payload):
@@ -12558,11 +12676,22 @@ METHODS: dict[str, RpcMethod] = {
         _m(
             "provider.configure",
             ProviderConfigureParams,
-            Ok,
+            ProviderConfigureResult,
             ("Store settings and credentials for a provider. From a remote web login (1.55.0) "
              "no base_url and no credential (api_key, token, an OAuth record; clearing one "
              "stays open): jarvis_person_only, details {reason: local_only, what: "
-             "'base_url'|'credential'}."),
+             "'base_url'|'credential'}. 1.75.0 (providerKeyVerify): a new API key, token or "
+             "base URL is checked with the vendor first (about 8 s at most); a key the "
+             "vendor refuses is not stored unless force is true: invalid_params, details "
+             "{reason: invalid_key, vendor, verify}. This applies to every client, older "
+             "ones included. The result carries verify."),
+        ),
+        _m(
+            "provider.verify",
+            ProviderVerifyParams,
+            ProviderVerifyResult,
+            "Check the stored key with the vendor again now (1.75.0, capability "
+            "providerKeyVerify); provider.verified is sent as well.",
         ),
         _m(
             "provider.remove",
@@ -13767,6 +13896,8 @@ EVENTS: dict[str, type[BaseModel]] = {
     "commands.changed": CommandsChangedNotification,
     "system.updateProgress": UpdateProgressNotification,
     "provider.loginProgress": ProviderLoginProgressNotification,
+    # 1.75.0 (providerKeyVerify): a key check finished.
+    "provider.verified": ProviderVerifiedNotification,
     "settings.changed": SettingsChangedNotification,
     "mcp.changed": McpChangedNotification,
     "mcp.auth.done": McpAuthDoneNotification,
@@ -14037,6 +14168,11 @@ CAPABILITIES: list[str] = [
     "externalPty",
     # 1.74.0: unified resume — every open uses transport pty; no tmux bridge.
     "externalResumeUnified",
+    # 1.75.0: provider keys are checked with the vendor — ProviderInfo.verify,
+    # provider.configure {force} refusing a rejected key (invalid_key) and its
+    # verify result, provider.verify, provider.verified, provider.models
+    # usable/authError, and a turn refused up front for a rejected key.
+    "providerKeyVerify",
     # 1.76.0 (M40): several remote snowpea machines over ssh; proxy RPCs carry machine.
     "remoteMachines",
 ]
@@ -14128,6 +14264,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "jarvis.takeover",
         "jarvis.handback",
         "provider.configure",
+        "provider.verify",
         "provider.remove",
         "provider.model.remove",
         "provider.model.unhide",
