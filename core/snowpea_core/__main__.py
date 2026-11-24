@@ -92,6 +92,11 @@ def extend_macos_path(environ: dict[str, str] | None = None) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     raw = list(argv) if argv is not None else sys.argv[1:]
+    if raw[:2] == ["hook", "report"]:
+        # A CLI hook in a snowpea terminal (M37): stdlib only, exits 0 within 2 s.
+        from snowpea_core.terminal.integrations.hook_report import main as hook_report_main
+
+        return hook_report_main(raw[2:])
     extend_macos_path()
     if raw[:1] == ["--run-hook"]:
         # Before anything imports the daemon: a hook child stays small.
