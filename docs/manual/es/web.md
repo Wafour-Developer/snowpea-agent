@@ -86,6 +86,8 @@ Ajustes (`web.remote.tunnel`, se cambian solo en este equipo): `provider` (`off`
 - **Orígenes y cabeceras de proxy.** Mientras el túnel funciona, su dirección es un origen permitido para el WebSocket de la página, y la dirección del visitante y el esquema `https` se toman de las cabeceras del túnel (`CF-Connecting-IP`, `X-Forwarded-*`), pero solo desde una conexión de este equipo, que es desde donde se conecta el programa de túnel. No se escribe nada en `allowedOrigins`.
 - **Terminales a través del túnel.** Una página abierta por el túnel puede ver un terminal después de iniciar sesión, pero arrancar un terminal, escribir en él o usar cualquier opción peligrosa requiere un **desbloqueo de terminal**: la página vuelve a pedir la contraseña web (`web.tunnel.unlock`), y el desbloqueo dura lo que dure esa sesión. Las opciones peligrosas se rechazan por el túnel salvo que `maxMode` sea `auto`.
 
+En la aplicación, **Settings → Tunnel** hace lo mismo: elige el proveedor, escribe el nombre de host (`cloudflare`), pega un token (**Save token**; el campo indica si hay uno guardado y nunca lo muestra), activa **Start the tunnel with snowpea** y luego **Start tunnel** / **Stop tunnel**. Si falta el programa, ofrece **Install** o el comando que ejecutar. Mientras funciona, la página muestra el estado, la dirección pública con **Copy** y un código QR para abrirla en el teléfono, y el error cuando lo hay. Un inicio de sesión remoto ve una nota en su lugar.
+
 Un túnel hace la página accesible para cualquiera que pueda adivinar la dirección, así que se aplican todas las notas de acceso remoto de arriba: usa una contraseña larga y detén el túnel cuando no lo necesites.
 
 ## La pantalla
@@ -96,11 +98,11 @@ El diseño sigue el cliente web de DeepSeek Harness: tres columnas, con la conve
 |---|---|
 | Izquierda — barra lateral | **New Session** (nueva sesión), Plugins, Automation tasks (tareas de automatización), More (las demás pantallas: skills, programación, ajustes…), y luego **Workspaces** (espacios de trabajo): un grupo por carpeta de proyecto con sus conversaciones, las ancladas primero. Un punto en una fila indica que un turno se está ejecutando, que hay una aprobación esperando o que hay algo sin leer. El menú de la fila ancla, renombra, bifurca, copia el id o archiva. |
 | Centro — conversación | Una cabecera con el título de la conversación, los padres de los que se delegó o bifurcó, y dos pestañas: **Chat** (los mensajes, las tarjetas de herramientas y el campo de entrada) y **Trajectory** (trayectoria; ver abajo). |
-| Derecha — dock | Pestañas que se abren junto a la conversación: archivos, el árbol de archivos del espacio de trabajo, el plan, el trabajo delegado, los cambios y, en el IDE, terminales. Los paneles se dividen y las pestañas se mueven entre ellos; el diseño se guarda por conversación en este navegador. |
+| Derecha — dock | Pestañas que se abren junto a la conversación: archivos, el árbol de archivos del espacio de trabajo, el plan, el trabajo delegado, los cambios y terminales (en snowpea web, las [sesiones de terminal](terminals.md) del daemon; la aplicación de escritorio también tiene sus propias shells). Los paneles se dividen y las pestañas se mueven entre ellos; el diseño se guarda por conversación en este navegador. |
 
 La barra lateral mide 280 px (arrastra su borde entre 264 y 420), se pliega a un riel por debajo de 1024 px y pasa a ser un cajón por debajo de 768 px; `Ctrl/⌘ B` la alterna. El dock se abre al 45 % de la ventana, conserva el ancho que le des, nunca ocupa más del 70 % y se cierra antes que dejar la conversación en menos de 400 px; `Ctrl/⌘ J` lo alterna.
 
-Un panel vacío del dock muestra una pestaña **Start** con tarjetas para los archivos del espacio de trabajo, los cambios y el plan (la tarjeta de terminal solo existe en el IDE). La barra de estado muestra si la página está conectada, y una pestaña abierta impide que el daemon se apague por inactividad.
+Un panel vacío del dock muestra una pestaña **Start** con tarjetas para los archivos del espacio de trabajo, los cambios y el plan (la tarjeta de terminal aparece en snowpea web solo cuando el daemon ejecuta [sesiones de terminal](terminals.md)). La barra de estado muestra si la página está conectada, y una pestaña abierta impide que el daemon se apague por inactividad.
 
 ## Los archivos se abren en el dock
 
