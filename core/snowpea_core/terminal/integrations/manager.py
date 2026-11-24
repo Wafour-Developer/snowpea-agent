@@ -445,6 +445,18 @@ class IntegrationRow:
     def as_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)
 
+    def wire(self) -> dict[str, Any]:
+        """The protocol's ``IntegrationRow`` (1.73.0)."""
+        return {
+            "cli": self.cli,
+            "label": self.label,
+            "state": self.status,
+            "cliInstalled": self.cliInstalled,
+            "version": None if self.installedVersion is None else str(self.installedVersion),
+            "files": [{"path": path, "exists": os.path.lexists(path)} for path in self.files],
+            "detail": self.detail,
+        }
+
 
 @dataclass
 class ActionResult:

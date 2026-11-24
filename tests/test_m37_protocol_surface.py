@@ -145,7 +145,9 @@ def test_person_only_methods() -> None:
 
 @pytest.mark.parametrize("name", [*TERMINAL_METHODS, *INTEGRATION_METHODS, *TUNNEL_METHODS])
 def test_stubs_answer_not_implemented_cleanly(name: str, tmp_path: Path) -> None:
-    core = Core(settings=Settings(), paths=Paths.create(tmp_path / "home"), token="t")
+    if name in INTEGRATION_METHODS and "cliIntegrations" in protocol.CAPABILITIES:
+        pytest.skip("cliIntegrations landed (T2): real handlers, tested in test_m37_integration_*")
+    core =Core(settings=Settings(), paths=Paths.create(tmp_path / "home"), token="t")
     dispatcher = build_dispatcher(core)
     assert dispatcher.has(name)
     handler = dispatcher._handlers[name]  # noqa: SLF001

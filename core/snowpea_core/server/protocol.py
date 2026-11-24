@@ -13736,6 +13736,9 @@ CAPABILITIES: list[str] = [
     # 1.73.0 (M37): the snowpea TUI takes --session <id> (session.resume, no new
     # session) and emits OSC 7501 status inside a terminal session.
     "tuiSessionAttach",
+    # 1.73.0 (M37): integration.list|install|uninstall and integration.changed —
+    # snowpea's hook in Claude Code / Codex / Cursor / agy hook configs.
+    "cliIntegrations",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
@@ -13746,7 +13749,6 @@ PENDING_CAPABILITIES: dict[str, str] = {
     # M37 (1.73.0): each moves into CAPABILITIES when its work package lands.
     "terminalSessions": "terminal.* methods and events: PTY terminals held by the daemon",
     "terminalStatus": "TerminalInfo.status: OSC 7501, screen rules and hook-driven states",
-    "cliIntegrations": "integration.list|install|uninstall: CLI hook entries (Claude, Codex, ...)",
     "externalPty": "external.open|create {transport: 'pty'} and ExternalTerminal.kind 'pty'",
     "webTunnel": "web.tunnel.*: ngrok / Cloudflare tunnel for web.remote",
 }
