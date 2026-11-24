@@ -96,6 +96,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if raw[:1] == ["--run-hook"]:
         # Before anything imports the daemon: a hook child stays small.
         return run_hook_file(raw[1:])
+    if raw[:1] == ["--terminal-holder"]:
+        # A frozen core's terminal holder (M37): ``python -m`` is not available there.
+        from snowpea_core.terminal.holder import main as holder_main
+
+        return holder_main()
     if raw[:2] == ["remote", "up"]:
         # ``snowpea-core remote up …``: the bundled core has no ``snowpea`` console script,
         # and the snowpea browser runs this entry (JSON lines on stdout, no TUI).

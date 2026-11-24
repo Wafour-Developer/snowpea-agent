@@ -28,7 +28,7 @@ from typing import Any, Literal, Protocol, runtime_checkable
 
 State = Literal["idle", "working", "done", "blocked", "error"]
 Kind = Literal["permission", "question", "auth"]
-Source = Literal["osc", "screen", "hook", "rules", "exit", "none"]
+Source = Literal["osc", "screen", "hook", "rules", "none"]
 
 STATES: frozenset[str] = frozenset({"idle", "working", "done", "blocked", "error"})
 KINDS: frozenset[str] = frozenset({"permission", "question", "auth"})
@@ -115,7 +115,7 @@ class TerminalStatus:
     detail: str | None = None
 
     def wire(self) -> dict[str, Any]:
-        """The ``TerminalInfo.status`` shape (§2.13); optional keys only when set."""
+        """The wire ``TerminalStatus`` (§2.13); progress, message and detail stay in-process."""
         out: dict[str, Any] = {
             "state": self.state,
             "turn": self.turn,
@@ -125,12 +125,6 @@ class TerminalStatus:
         }
         if self.kind:
             out["kind"] = self.kind
-        if self.progress is not None:
-            out["progress"] = self.progress
-        if self.message:
-            out["message"] = self.message
-        if self.detail:
-            out["detail"] = self.detail
         return out
 
 
@@ -296,7 +290,7 @@ class StatusMachine:
         if now - self.launched_at < LAUNCH_SILENCE:
             return False
         rules = self._rules
-        since = now - rules.last_check
+        since = now - rules.last_check + 1e-6  # float slack for 100 ms steps
         if self._dirty and since >= RULE_CHECK_INTERVAL:
             return True
         if rules.pending_count and since >= IDLE_CONFIRM_SPACING:
@@ -335,7 +329,7 @@ class StatusMachine:
 
     # -- ranking ------------------------------------------------------------
     def _winner(self) -> tuple[_Claim | None, str]:
-        for claim, source in ((self._exit, "exit"), (self._osc, "osc"), (self._blocker, "screen"),
+        for claim, source in ((self._exit, "none"), (self._osc, "osc"), (self._blocker, "screen"),
                               (self._hook, "hook"), (self._rules.claim, "rules")):
             if claim is not None:
                 return claim, source
