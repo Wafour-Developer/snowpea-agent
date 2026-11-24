@@ -68,6 +68,9 @@ REFLOW_DEBOUNCE = 0.15
 #: How long read / attach wait for a pending reflow before using the old screen.
 REFLOW_WAIT = 5.0
 TERMINAL_ID_RE = re.compile(r"^t[0-9a-f]{8}$")
+#: A CLI's session id (as ``external.proc.SESSION_ID_RE``; kept here so this
+#: module does not import the external package at load time).
+_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 _ANSI_RE = re.compile(rb"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])")
 
 #: Wire error codes (existing ones: the protocol has no terminal-specific codes).
@@ -196,6 +199,8 @@ class Terminal:
         self.last_output_at = float("-inf")
         self.session_id: str | None = (spec.external or {}).get("sessionId")
         self.transcript_path: str | None = None
+        #: The command a permission hook reported while blocked (security review H3).
+        self.hook_command: str | None = None
         self._waiters: list[_Waiter] = []
         self._exited = asyncio.Event()
         #: Raw output (the last :data:`RAW_KEEP` bytes) for rebuilding after a resize.
@@ -844,10 +849,11 @@ class TerminalManager:
             raise TerminalError(errors.INVALID_PARAMS, str(exc)) from exc
         return {"accepted": result.accepted, "sent": True}
 
-    async def keys(self, terminal_id: str, keys: list[str]) -> None:
+    async def keys(self, terminal_id: str, keys: list[str], *,
+                   guard: Callable[[], None] | None = None) -> None:
         term = self._alive(terminal_id)
         try:
-            await term.gate.keys(keys)
+            await term.gate.keys(keys, guard=guard)
         except GateRefused as exc:
             raise TerminalError(errors.INVALID_PARAMS, str(exc)) from exc
 
@@ -928,12 +934,26 @@ class TerminalManager:
         changed = False
         session_id = getattr(report, "session_id", None)
         transcript = getattr(report, "transcript_path", None)
-        if session_id and session_id != term.session_id:
+        # Anything in the terminal can send a report with its token (security
+        # review M1): an id must look like one, and only the first is taken — a
+        # Claude Code terminal already has the id snowpea gave it.
+        if session_id and not _SESSION_ID_RE.match(str(session_id)):
+            session_id = None
+        if session_id and term.session_id and session_id != term.session_id:
+            log.info("terminal %s: ignored a report naming another session", term.id)
+            session_id = None
+        if session_id and term.session_id is None:
             term.session_id = session_id
             changed = True
-        if transcript and transcript != term.transcript_path:
+        if transcript and term.transcript_path is None and (session_id or term.session_id):
             term.transcript_path = transcript
             changed = True
+        state = getattr(report, "state", None)
+        if state is not None:
+            # The command a permission hook named (H3); it holds only while blocked.
+            command = getattr(report, "command", None)
+            term.hook_command = (str(command)[:4000] if state == "blocked" and command
+                                 else None)
         term.status.apply_hook_report(report)
         if changed and term.alive:
             with contextlib.suppress(OSError):

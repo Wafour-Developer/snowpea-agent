@@ -111,6 +111,9 @@ class HookReport:
     session_id: str | None = None
     transcript_path: str | None = None
     message: str | None = None
+    #: With ``blocked`` / ``permission``: the command the permission hook names
+    #: (Claude Code's PermissionRequest ``tool_input.command``), when it sends one.
+    command: str | None = None
 
 
 # ---------------------------------------------------------------------------

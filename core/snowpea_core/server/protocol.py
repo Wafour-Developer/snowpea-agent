@@ -9925,6 +9925,14 @@ class TerminalProfile(Payload):
             "that have a dangerous option."
         ),
     )
+    refusal: Literal["remote_snowpea"] | None = Field(
+        default=None,
+        description=(
+            "Why this connection cannot start the profile at all: remote_snowpea (the snowpea "
+            "TUI would act as the local person; a remote web login opens the session's chat "
+            "or terminal view instead). null: it can."
+        ),
+    )
 
 
 class TerminalProfilesResult(Payload):
@@ -10142,6 +10150,13 @@ class TerminalReportParams(Payload):
     sessionId: str | None = None
     transcriptPath: str | None = None
     message: str | None = None
+    command: str | None = Field(
+        default=None, max_length=4000,
+        description=(
+            "With state 'blocked' (permission): the command the permission hook names. "
+            "Jarvis answers a prompt only when it matches the command shown on screen."
+        ),
+    )
 
 
 class TerminalDataEvent(Payload):

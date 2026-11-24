@@ -56,6 +56,27 @@ class SendResult:
     waited: float = 0.0
 
 
+def sanitize_agent_text(text: str) -> str:
+    """Agent text with every control character removed but tab and newline.
+
+    C0 controls (CR, Ctrl-U, ESC …), DEL and the C1 range (``\\x9b`` is a CSI
+    on its own) never reach the PTY from an agent: with them a paste could end
+    the bracketed paste, submit, or erase the line (security review H1).
+    """
+    text = str(text).replace("\r\n", "\n")
+    return "".join(
+        ch for ch in text
+        if ch in "\t\n" or not (ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F)
+    )
+
+
+def strip_paste_end(body: bytes) -> bytes:
+    """Remove ``ESC[201~`` until none is left (one pass can join a new one)."""
+    while PASTE_END in body:
+        body = body.replace(PASTE_END, b"")
+    return body
+
+
 # -- key names ---------------------------------------------------------------
 
 _PLAIN_KEYS: dict[str, bytes] = {
@@ -174,6 +195,8 @@ class InputGate:
 
     # -- agents ----------------------------------------------------------------
     async def send(self, text: str, *, force: bool = False, submit: bool = True) -> SendResult:
+        # Agent text is text: no control byte, ESC or paste marker gets in as a key.
+        text = sanitize_agent_text(text)
         if self._state() == "blocked" and not force:
             raise GateRefused("blocked", BLOCKED_MESSAGE)
         start = self._clock()
@@ -201,7 +224,7 @@ class InputGate:
             return SendResult(accepted, waited)
 
     def paste_bytes(self, text: str) -> bytes:
-        body = text.encode("utf-8").replace(PASTE_END, b"")
+        body = strip_paste_end(sanitize_agent_text(text).encode("utf-8"))
         if self._bracketed():
             return PASTE_START + body + PASTE_END
         return body
@@ -236,7 +259,11 @@ class InputGate:
                 return False
             await self._sleep(POLL)
 
-    async def keys(self, names: list[str]) -> None:
+    async def keys(self, names: list[str], *,
+                   guard: Callable[[], None] | None = None) -> None:
+        """Named keys 30 ms apart.  ``guard`` runs inside the agent lock, right
+        before the first key; it raises :class:`GateRefused` to send nothing
+        (Jarvis re-checks the prompt it answers there: security review M2)."""
         encoded: list[bytes] = []
         for name in names:
             data = encode_key(name, app_cursor=self._app_cursor(), kitty_flags=self._kitty())
@@ -244,6 +271,8 @@ class InputGate:
                 raise GateRefused("unknown-key", f"unknown key: {name}")
             encoded.append(data)
         async with self._agent_lock:
+            if guard is not None:
+                guard()
             for index, data in enumerate(encoded):
                 if index:
                     await self._sleep(KEY_GAP)

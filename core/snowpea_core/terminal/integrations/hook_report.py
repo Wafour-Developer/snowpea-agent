@@ -50,6 +50,7 @@ def build_report(cli: str, action: str, payload: dict[str, Any],
     event = _text(payload, "hook_event_name", "hookEventName") or action
     session_id: str | None
     transcript: str | None
+    command: str | None = None
     if cli == "claude":
         # Cursor's agent reads Claude's hooks too; its own integration reports it.
         if "CURSOR_VERSION" in environ or "cursor_version" in payload:
@@ -60,7 +61,13 @@ def build_report(cli: str, action: str, payload: dict[str, Any],
         transcript = _text(payload, "transcript_path")
         if action == "blocked":
             note = _text(payload, "notification_type") or ""
-            if note == "permission_prompt":
+            tool_input = payload.get("tool_input")
+            if event == "PermissionRequest":
+                # Names the command itself: Jarvis answers only when the screen agrees.
+                kind = "permission"
+                if payload.get("tool_name") == "Bash" and isinstance(tool_input, dict):
+                    command = _text(tool_input, "command")
+            elif note == "permission_prompt":
                 kind = "permission"
             elif note == "elicitation_dialog":
                 kind = "question"
@@ -95,6 +102,7 @@ def build_report(cli: str, action: str, payload: dict[str, Any],
         "kind": kind,
         "sessionId": session_id,
         "transcriptPath": transcript,
+        **({"command": command[:4000]} if command else {}),
     }
 
 

@@ -63,13 +63,38 @@ NOTE_LINES = 20
 #: Lines the overview digest keeps.
 DIGEST_LINES = 3
 KEYS_MAX = 20
-#: Key names Jarvis may press (``terminal/input.py`` names); no raw bytes.
-KEY_RE = re.compile(r"^(?:[a-z0-9]|enter|escape|esc|tab|backspace|space|up|down|left|right|"
-                    r"home|end|pageup|pagedown|ctrl\+[a-z]|shift\+tab)$")
+#: Key names Jarvis may press at all (``terminal/input.py`` names); no raw bytes.
+KEY_RE = re.compile(r"^(?:[a-z0-9]|enter|escape|esc|up|down|left|right|"
+                    r"home|end|pageup|pagedown)$")
+#: Outside a permission prompt: navigation, Enter, Esc and digits only — never
+#: Shift+Tab (a mode cycle) or a Ctrl chord (interrupt has its own tool).
+FREE_KEY_RE = re.compile(r"^(?:[0-9]|enter|escape|esc|up|down|left|right|home|end|"
+                         r"pageup|pagedown)$")
+#: Profiles Jarvis types into.  Not ``snowpea`` (its TUI holds the person's own
+#: connection: Jarvis uses the session tools there) and not a shell.
+TYPING_PROFILES = ("claude", "codex", "agy", "cursor")
+#: Line prefixes a CLI reads as something other than a message: a shell escape
+#: (``!``), a memory note (``#``), a command (``/``), Claude Code's background
+#: task (``&``).  Refused at the start of any line Jarvis types (review H1).
+ESCAPE_PREFIXES: dict[str, tuple[str, ...]] = {
+    "claude": ("!", "#", "/", "&"),
+    "codex": ("!", "#", "/"),
+    "agy": ("!", "#", "/"),
+    "cursor": ("!", "#", "/"),
+}
+#: Characters a terminal title keeps when Jarvis sees it (review M3).
+_TITLE_UNSAFE = re.compile(r"[^A-Za-z0-9 ._:/@()+-]")
+TITLE_MAX = 60
 
 
 def is_terminal_id(text: str | None) -> bool:
     return bool(TERMINAL_ID_RE.fullmatch(str(text or "").strip()))
+
+
+def safe_title(title: Any) -> str:
+    """A terminal title as Jarvis may see it: a short, plain charset (any program sets it)."""
+    text = _TITLE_UNSAFE.sub("", " ".join(str(title or "").split()))[:TITLE_MAX].strip()
+    return text or "-"
 
 
 def _manager(service: JarvisService) -> Any:
@@ -87,17 +112,23 @@ def _project_of(service: JarvisService, cwd: str) -> str | None:
 
 
 def key_of(term: Any) -> str:
-    """The delegation key: the external session's once known, else the terminal id."""
+    """The delegation key, fixed for the terminal's life.
+
+    The external session's (``ext:<cli>:<id>``) when snowpea launched it with
+    that id (a resume, or Claude Code's ``--session-id``); else the terminal
+    id.  A hook report naming a session later never moves it (security review
+    M1): anything inside the terminal can send one.
+    """
     external = term.spec.external or {}
-    if external.get("cli") and term.session_id:
-        return f"ext:{external['cli']}:{term.session_id}"
+    if external.get("cli") and external.get("sessionId"):
+        return f"ext:{external['cli']}:{external['sessionId']}"
     return str(term.id)
 
 
 def _external_ref(term: Any) -> dict[str, str] | None:
     external = term.spec.external or {}
-    if external.get("cli") and term.session_id:
-        return {"cli": str(external["cli"]), "id": str(term.session_id)}
+    if external.get("cli") and external.get("sessionId"):
+        return {"cli": str(external["cli"]), "id": str(external["sessionId"])}
     return None
 
 
@@ -172,7 +203,7 @@ def overview_rows(service: JarvisService) -> list[JarvisOverviewRow]:
         tail = " / ".join(line.strip() for line in _last_lines(term, DIGEST_LINES) if line.strip())
         digest = f"{status['state']}{'' if status.get('seen', True) else ' (not seen)'}: {tail}"
         rows.append(JarvisOverviewRow(
-            sessionId=None, external=None, project=project, title=term.title,
+            sessionId=None, external=None, project=project, title=safe_title(term.title),
             status=_row_status(term),  # type: ignore[arg-type]
             level=state.level, exposed=True, pausedUntil=state.pausedUntil,
             takenOver=state.takenOver, levelScope=state.levelScope, grantId=state.grantId,
@@ -231,7 +262,7 @@ class TerminalIntake:
         what = {"blocked": f"is blocked ({status.kind or 'waiting'})",
                 "error": "reports an error", "done": "finished its turn",
                 "exit": f"exited (code {term.exit_code})"}[event]
-        text = _one_line(f'terminal {label(term)} "{term.title}" {what}', 400)
+        text = _one_line(f'terminal {label(term)} "{safe_title(term.title)}" {what}', 400)
         child = term.spec.parent == "jarvis" and event in ("blocked", "error", "exit")
         if child:
             lines = "\n".join(defang(line) for line in _last_lines(term, NOTE_LINES))
@@ -284,7 +315,12 @@ def _may_type(service: JarvisService, ctx: ToolContext, term: Any) -> None:
     """What every typing tool checks: a CLI terminal, not dangerous, Jarvis's to drive."""
     from snowpea_core.jarvis.tools import Refused, _authorized, _not_paused
 
-    if term.spec.profile not in ("claude", "codex", "agy", "cursor", "snowpea"):
+    if term.spec.profile == "snowpea":
+        raise Refused(
+            "that terminal runs the snowpea TUI as the person; work with its session through "
+            "the session tools instead"
+        )
+    if term.spec.profile not in TYPING_PROFILES:
         raise Refused(
             "that is a shell; typing into it would be running commands, which you never do "
             "— ask a worker session or the person"
@@ -326,7 +362,7 @@ async def terminal_list(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         lines.append(" | ".join([
             term.id, term.spec.profile,
             service.projects.name_of(project) if project else "-",
-            (term.title or "-")[:60], _status_text(term),
+            safe_title(term.title), _status_text(term),
             "full" if delegated(service, term) else "-",
             term.spec.parent or "the person",
         ]))
@@ -341,8 +377,9 @@ async def terminal_read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     lines = _int(args, "lines", READ_DEFAULT, 1, READ_MAX)
     text = term.manager.read(term.id, lines)["text"]
     await _access(service, term, "read", f"read {lines} lines")
-    head = f"terminal {label(term)} — {term.title} — {_status_text(term)}"
-    return _result(f"{head}\n{fence(f'terminal:{term.id}', text)}",
+    head = f"terminal {label(term)} — {_status_text(term)}"
+    body = f"title: {safe_title(term.title)}\n{text}"
+    return _result(f"{head}\n{fence(f'terminal:{term.id}', body)}",
                    state=term.status.state, alive=term.alive)
 
 
@@ -355,11 +392,22 @@ async def terminal_send(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         _service,
         _text,
     )
+    from snowpea_core.terminal.input import sanitize_agent_text
 
     service = _service(ctx)
     term = _find(service, _text(args, "id"))
-    text = _plain(_text(args, "text", limit=PROMPT_MAX_CHARS))
+    # What reaches the PTY is plain text (the gate strips controls again).
+    text = _plain(sanitize_agent_text(_text(args, "text", limit=PROMPT_MAX_CHARS)).strip())
+    if not text:
+        raise Refused("text is empty once control characters are removed")
     _may_type(service, ctx, term)
+    prefixes = ESCAPE_PREFIXES.get(term.spec.profile, ("!", "#", "/"))
+    for line in text.split("\n"):
+        if line.lstrip().startswith(prefixes):
+            raise Refused(
+                f"a line starting with {' '.join(prefixes)} is a shell escape, memory note "
+                "or command to this CLI, not a message; send plain text"
+            )
     # Never force: the input gate refuses a blocked terminal (its prompt is answered
     # with terminal_keys, under the prompt rules) and waits for the person's typing.
     sent = await term.manager.send(term.id, text, force=False)
@@ -379,16 +427,43 @@ async def terminal_send(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     )
 
 
-def _prompt_refusal(service: JarvisService, term: Any) -> str | None:
-    """Why Jarvis may not answer the permission prompt ``term`` shows (§2.11), or ``None``."""
-    status = term.status.status
+def _screen(term: Any) -> str:
+    try:
+        return str(term.screen.text())
+    except Exception:  # noqa: BLE001 - no screen, no command
+        return ""
+
+
+def screen_command(term: Any) -> tuple[str | None, str | None]:
+    """The command the permission prompt on screen asks about, read strictly now (H3).
+
+    When a permission hook named the command, the screen must show the same one.
+    """
+    from snowpea_core.terminal.rules.prompt import prompt_command, same_command
+
+    command, why = prompt_command(term.spec.profile, _screen(term))
+    if command is None:
+        return None, why
+    hooked = getattr(term, "hook_command", None)
+    if hooked:
+        # Claude Code shows a one-line description under the command.
+        head = command.rsplit("\n", 1)[0] if "\n" in command else command
+        if not (same_command(hooked, command) or same_command(hooked, head)):
+            return None, "the command on screen is not the one the CLI's hook reported"
+        return hooked, None
+    return command, None
+
+
+def _prompt_refusal(service: JarvisService, term: Any) -> tuple[str | None, str | None]:
+    """``(command, None)`` when Jarvis may approve the prompt ``term`` shows (§2.11),
+    else ``(command or None, why)``."""
     if term.spec.dangerous:
-        return "the terminal runs with a dangerous option"
+        return None, "the terminal runs with a dangerous option"
     if not delegated(service, term):
-        return "the terminal is not under full delegation"
-    command = (status.detail or "").strip()
-    if not command:
-        return "the screen rule could not read the command it asks about"
+        return None, "the terminal is not under full delegation"
+    command, why = screen_command(term)
+    if command is None:
+        return None, f"the command it asks about could not be read safely ({why})"
     from snowpea_core.jarvis.classify import ClassifyRequest
 
     project = _project_of(service, term.spec.cwd)
@@ -397,8 +472,25 @@ def _prompt_refusal(service: JarvisService, term: Any) -> str | None:
         session_id=key_of(term), external=True,
     ))
     if verdict.classification not in ("safe", "risky"):
-        return f"the engine classifies the command {verdict.classification}"
-    return None
+        return command, f"the engine classifies the command {verdict.classification}"
+    return command, None
+
+
+def _still_the_prompt(term: Any, command: str | None) -> Any:
+    """The gate-lock check (review M2): the same prompt is on screen right before the keys."""
+    from snowpea_core.terminal.input import GateRefused
+    from snowpea_core.terminal.rules.prompt import same_command
+
+    def guard() -> None:
+        status = term.status.status
+        if status.state != "blocked" or status.kind != "permission":
+            raise GateRefused("stale", "the prompt is no longer showing")
+        if command is not None:
+            now, _why = screen_command(term)
+            if not same_command(now, command):
+                raise GateRefused("stale", "another prompt is showing now")
+
+    return guard
 
 
 async def terminal_keys(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
@@ -412,8 +504,8 @@ async def terminal_keys(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         raise Refused(f"keys must be a list of 1 to {KEYS_MAX} key names")
     names = [str(k).strip().lower() for k in keys]
     if not all(KEY_RE.match(k) for k in names):
-        raise Refused("only named keys (enter, escape, tab, up, y, 1, ctrl+c …); send text "
-                      "with terminal_send")
+        raise Refused("only named keys (enter, escape, up, down, 1 …); send text with "
+                      "terminal_send, stop it with terminal_interrupt")
     _may_type(service, ctx, term)
     status = term.status.status
     if status.state == "blocked":
@@ -429,19 +521,34 @@ async def terminal_keys(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                 f"approve {approve or 'n/a'}, deny {deny or 'n/a'}"
             )
         decision = "allow" if names == approve else "deny"
-        refusal = _prompt_refusal(service, term) if decision == "allow" else (
-            None if delegated(service, term) else "the terminal is not under full delegation")
-        command = (status.detail or "")[:200]
+        if decision == "allow":
+            command, refusal = _prompt_refusal(service, term)
+        else:
+            command = None
+            refusal = (None if delegated(service, term)
+                       else "the terminal is not under full delegation")
+        shown = (command or "")[:200]
         if refusal is not None:
             _decision(service, term, kind="escalate",
                       summary=f"left the prompt in {label(term)} to the person: {refusal}",
                       reason=refusal, importance="high", tool="terminal")
             raise Refused(f"this prompt is the person's: {refusal}; tell them")
-        await term.manager.keys(term.id, names)
+        from snowpea_core.server.errors import RpcError
+
+        try:
+            await term.manager.keys(term.id, names, guard=_still_the_prompt(term, command))
+        except RpcError as exc:
+            _decision(service, term, kind="escalate", tool="terminal", importance="high",
+                      summary=f"did not answer the prompt in {label(term)}: {exc.message}",
+                      reason=exc.message)
+            raise Refused(f"nothing was pressed: {exc.message}") from exc
         _decision(service, term, kind="approval", decision=decision, tool="terminal",
-                  summary=f"{decision} in {label(term)}: {command}"[:300], importance="normal")
-        await _access(service, term, "approval", f"{decision}: {command}"[:160])
+                  summary=f"{decision} in {label(term)}: {shown}"[:300], importance="normal")
+        await _access(service, term, "approval", f"{decision}: {shown}"[:160])
         return _result(f"answered the prompt in {term.id}: {decision}", decision=decision)
+    if not all(FREE_KEY_RE.match(k) for k in names):
+        raise Refused("outside a permission prompt only navigation keys, Enter, Esc and "
+                      "digits; never a mode switch or a Ctrl chord")
     await term.manager.keys(term.id, names)
     _decision(service, term, kind="prompt", summary=f"pressed {' '.join(names)} in {label(term)}",
               importance="low")

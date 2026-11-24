@@ -210,6 +210,21 @@ def _tunnel_gate(conn: Any, core: Core, *, dangerous: bool = False, kind: str = 
     require_terminal_unlock(conn, dangerous=dangerous, core=core)
 
 
+def _snowpea_gate(conn: Any, core: Core, terminal_id: str) -> None:
+    """A remote web login never types into the snowpea TUI (review H6): it holds the
+    local daemon token, so its keys act as the local person."""
+    from snowpea_core.server.person_gate import connection_kind
+
+    if connection_kind(conn) != "remote_login":
+        return
+    manager = getattr(core, "terminals", None)
+    term = manager._terminals.get(terminal_id) if manager is not None else None  # noqa: SLF001
+    if term is not None and term.spec.profile == "snowpea":
+        raise RpcError(errors.JARVIS_PERSON_ONLY,
+                       "the snowpea TUI acts as the local person; a remote web login can "
+                       "only watch it", {"reason": "remote_snowpea"})
+
+
 # ---------------------------------------------------------------------------
 # profiles and launch (T3 extends through snowpea_core.terminal.profiles)
 # ---------------------------------------------------------------------------
@@ -308,6 +323,7 @@ async def create_handler(conn: RpcConnection, params: TerminalCreateParams,
         # {profile: "snowpea", snowpeaSessionId} reuses that session's live terminal.
         reused = module.existing(core, params)
         if reused is not None:
+            _snowpea_gate(conn, core, reused["terminalId"])
             return {"terminal": reused}
     cwd = await _resolve_cwd(core, params)
     cols, rows = _size(core, params)
@@ -346,6 +362,7 @@ async def attach_handler(conn: RpcConnection, params: TerminalAttachParams,
                          core: Core) -> dict[str, Any]:
     if params.mode == "interactive":
         _tunnel_gate(conn, core, kind="attach")
+        _snowpea_gate(conn, core, params.terminalId)
     manager = ensure_manager(core)
     result = await manager.attach(params.terminalId, conn, params.mode, params.cols, params.rows)
     _watch_close(core, conn)
@@ -368,6 +385,7 @@ def _decode(data: str) -> bytes:
 async def write_handler(conn: RpcConnection, params: TerminalWriteParams,
                         core: Core) -> dict[str, Any]:
     _tunnel_gate(conn, core, kind="write")
+    _snowpea_gate(conn, core, params.terminalId)
     await ensure_manager(core).write(params.terminalId, conn, _decode(params.data),
                                      human=params.human)
     return {"ok": True}
@@ -395,6 +413,7 @@ async def read_handler(_conn: RpcConnection, params: TerminalReadParams,
 async def send_handler(conn: RpcConnection, params: TerminalSendParams,
                        core: Core) -> dict[str, Any]:
     _tunnel_gate(conn, core, kind="write")
+    _snowpea_gate(conn, core, params.terminalId)
     return await ensure_manager(core).send(params.terminalId, params.text, force=params.force,
                                            submit=params.submit)
 
@@ -402,6 +421,7 @@ async def send_handler(conn: RpcConnection, params: TerminalSendParams,
 async def keys_handler(conn: RpcConnection, params: TerminalKeysParams,
                        core: Core) -> dict[str, Any]:
     _tunnel_gate(conn, core, kind="write")
+    _snowpea_gate(conn, core, params.terminalId)
     await ensure_manager(core).keys(params.terminalId, list(params.keys))
     return {"ok": True}
 
@@ -409,6 +429,7 @@ async def keys_handler(conn: RpcConnection, params: TerminalKeysParams,
 async def interrupt_handler(conn: RpcConnection, params: TerminalIdParams,
                             core: Core) -> dict[str, Any]:
     _tunnel_gate(conn, core)
+    _snowpea_gate(conn, core, params.terminalId)
     await ensure_manager(core).interrupt(params.terminalId)
     return {"ok": True}
 
@@ -435,7 +456,8 @@ async def report_handler(_conn: RpcConnection, params: TerminalReportParams,
                          core: Core) -> dict[str, Any]:
     report = HookReport(event=params.event, state=params.state, kind=params.kind,
                         session_id=params.sessionId,
-                        transcript_path=params.transcriptPath, message=params.message)
+                        transcript_path=params.transcriptPath, message=params.message,
+                        command=params.command if params.state == "blocked" else None)
     ensure_manager(core).report(params.terminalId, params.token, report)
     return {"ok": True}
 

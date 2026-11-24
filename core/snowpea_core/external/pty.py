@@ -141,7 +141,12 @@ class PtyBridge:
         cli, key = self.links[terminal_id]
         if method == "terminal.sessionId":
             session_id = str(params.get("sessionId") or "")
-            if session_id and session_id != key:
+            other = self.live(cli, session_id) if session_id else None
+            if other is not None and other.id != terminal_id:
+                # Another terminal runs that session: a report from this one naming
+                # it is not believed (security review M1).
+                return
+            if session_id and session_id != key and key == terminal_id:
                 self.links[terminal_id] = (cli, session_id)
                 await manager.pty_rekey(cli, key, session_id)
             return
