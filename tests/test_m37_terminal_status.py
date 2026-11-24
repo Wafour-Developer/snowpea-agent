@@ -272,3 +272,69 @@ def test_visible_idle_prompt_drops_a_stale_hook_working() -> None:
     machine.on_output()
     machine.poll(_screen)
     assert machine.state == "idle" and machine.status.source in ("rules", "none")
+
+
+def test_stale_hook_working_yields_after_2s_of_idle_rules() -> None:
+    """Claude fires no Stop on Esc: a hook ``working`` must not pin the state."""
+    rules = Rules()
+    machine, clock, _ = _machine(rules)
+    clock.t += LAUNCH_SILENCE
+    machine.apply_hook_report(HookReport("UserPromptSubmit", state="working"))
+    rules.verdict = RuleVerdict("idle")  # no visible prompt marker, just idle
+    for _ in range(5):  # output keeps changing (a redraw), rules keep saying idle
+        clock.t += 0.45
+        machine.on_output()
+        machine.poll(_screen)
+    assert (machine.state, machine.status.source) == ("working", "hook")  # idle for 1.8 s
+    clock.t += 0.45
+    machine.on_output()
+    machine.poll(_screen)
+    assert machine.state == "idle"  # idle rules for 2.25 s
+
+
+def test_stale_hook_working_yields_after_2s_without_output() -> None:
+    machine, clock, _ = _machine()  # no screen rules at all
+    machine.apply_hook_report(HookReport("UserPromptSubmit", state="working"))
+    clock.t += 1.9
+    machine.poll(_screen)
+    assert machine.state == "working"
+    clock.t += 0.2
+    machine.poll(_screen)
+    assert machine.state == "idle"
+
+
+def test_hook_working_holds_while_rules_say_working() -> None:
+    rules = Rules()
+    machine, clock, _ = _machine(rules)
+    clock.t += LAUNCH_SILENCE
+    machine.apply_hook_report(HookReport("UserPromptSubmit", state="working"))
+    rules.verdict = RuleVerdict("working")
+    for _ in range(10):
+        clock.t += 0.45
+        machine.on_output()
+        machine.poll(_screen)
+    assert (machine.state, machine.status.source) == ("working", "hook")
+
+
+def test_hook_done_and_blocked_do_not_lapse_and_a_visible_blocker_wins() -> None:
+    rules = Rules()
+    machine, clock, _ = _machine(rules)
+    clock.t += LAUNCH_SILENCE
+    machine.apply_hook_report(HookReport("Stop", state="done"))
+    rules.verdict = RuleVerdict("idle")
+    for _ in range(10):
+        clock.t += 0.45
+        machine.on_output()
+        machine.poll(_screen)
+    assert (machine.state, machine.status.source) == ("done", "hook")
+    machine.apply_hook_report(HookReport("Notification", state="blocked", kind="permission"))
+    clock.t += 5
+    machine.poll(_screen)
+    assert (machine.state, machine.status.source) == ("blocked", "hook")
+    machine.apply_hook_report(HookReport("UserPromptSubmit", state="working"))
+    rules.verdict = RuleVerdict("blocked", kind="question")
+    clock.t += 0.45
+    machine.on_output()
+    machine.poll(_screen)
+    assert (machine.state, machine.status.kind, machine.status.source) == (
+        "blocked", "question", "screen")

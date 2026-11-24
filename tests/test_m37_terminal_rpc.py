@@ -99,3 +99,49 @@ async def test_profiles_and_unknown_terminal(tmp_path: Path, http: aiohttp.Clien
         await client.stop()
     finally:
         await daemon.stop()
+
+
+async def test_report_socket_runs_with_the_daemon_and_reaches_the_terminal(
+    tmp_path: Path, http: aiohttp.ClientSession
+) -> None:
+    import json
+
+    home = tmp_path / "home"
+    with env_vars(SHELL="/bin/sh"):
+        daemon = await make_daemon(home)
+        try:
+            core = daemon.core
+            assert core.terminal_report_server is not None
+            address = core.terminal_report_address
+            assert address and Path(address).exists()
+            client = await connect(http, daemon)
+            created = await client.ok("terminal.create", {"profile": "shell", "noProject": True})
+            tid = created["terminal"]["terminalId"]
+            term = core.terminals.get(tid)
+            line = base64.b64encode(b"echo R=$SNOWPEA_TERMINAL_REPORT\r").decode()
+            await client.ok("terminal.write", {"terminalId": tid, "data": line})
+            await _until(lambda: f"R={address}" in core.terminals.read(tid)["text"])
+
+            async def report(token: str) -> bytes:
+                reader, writer = await asyncio.open_unix_connection(address)
+                writer.write(json.dumps({
+                    "terminalId": tid, "token": token, "cli": "claude", "event": "Notification",
+                    "state": "blocked", "kind": "permission", "sessionId": "s-1",
+                }).encode() + b"\n")
+                answer = await reader.readline()
+                writer.close()
+                return answer
+
+            assert b'"ok":false' in await report("wrong-token")
+            assert term.status.state == "idle"
+            assert b'"ok":true' in await report(term.report_token)
+            assert (term.status.state, term.status.status.kind, term.status.status.source) == (
+                "blocked", "permission", "hook")
+            assert term.session_id == "s-1"
+            await client.ok("terminal.close", {"terminalId": tid})
+            await client.stop()
+        finally:
+            if daemon.core is not None and daemon.core.terminals is not None:
+                await daemon.core.terminals.close_all()
+            await daemon.stop()
+        assert not Path(address).exists()

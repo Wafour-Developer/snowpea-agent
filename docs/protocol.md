@@ -155,6 +155,7 @@ Server capabilities advertised in the `system.hello` result:
 - `visionNotice`
 - `webRemoteControl`
 - `webSearch`
+- `webTunnel`
 - `workspaces`
 - `writeOutsideAsks`
 

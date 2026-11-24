@@ -264,7 +264,7 @@ Take the exact files and events from herdr's targets.rs.
 | Provider | Command | URL |
 |---|---|---|
 | cloudflare-quick | `cloudflared tunnel --no-autoupdate --url http://127.0.0.1:<port>` | `https://*.trycloudflare.com` parsed from its log |
-| cloudflare | `cloudflared tunnel --no-autoupdate run --token <token>` | `https://<hostname>` |
+| cloudflare | `cloudflared tunnel --no-autoupdate run` (token in env `TUNNEL_TOKEN`, never on the command line, so it is not visible in `ps`) | `https://<hostname>` |
 | ngrok | `ngrok http 127.0.0.1:<port> --log stdout --log-format json` (authtoken via env `NGROK_AUTHTOKEN`) | `url` parsed from the JSON log, falling back to `127.0.0.1:4040/api/tunnels` |
 
 - If the tunnel drops, it is restarted with backoff.

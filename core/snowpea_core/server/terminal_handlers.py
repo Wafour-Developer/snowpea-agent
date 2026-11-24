@@ -418,7 +418,8 @@ async def seen_handler(_conn: RpcConnection, params: TerminalIdParams,
 
 async def report_handler(_conn: RpcConnection, params: TerminalReportParams,
                          core: Core) -> dict[str, Any]:
-    report = HookReport(event=params.event, state=params.state, session_id=params.sessionId,
+    report = HookReport(event=params.event, state=params.state, kind=params.kind,
+                        session_id=params.sessionId,
                         transcript_path=params.transcriptPath, message=params.message)
     ensure_manager(core).report(params.terminalId, params.token, report)
     return {"ok": True}
@@ -441,8 +442,17 @@ _HANDLERS: dict[str, Any] = {
     "terminal.close": close_handler,
     "terminal.seen": seen_handler,
     "terminal.report": report_handler,
-    # terminal.unlock is the web tunnel's (T4): it stays a stub until that lands.
 }
+
+
+def _unlock_handler(conn: Any, params: Any, core: Any) -> Any:
+    """``terminal.unlock`` is ``web.tunnel.unlock`` under the terminal namespace (T4)."""
+    from snowpea_core.server.tunnel_handlers import terminal_unlock_handler
+
+    return terminal_unlock_handler(conn, params, core)
+
+
+_HANDLERS["terminal.unlock"] = _unlock_handler
 
 
 def register_terminal_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:

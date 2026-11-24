@@ -13776,6 +13776,9 @@ CAPABILITIES: list[str] = [
     # 1.73.0 (M37): integration.list|install|uninstall and integration.changed —
     # snowpea's hook in Claude Code / Codex / Cursor / agy hook configs.
     "cliIntegrations",
+    # 1.73.0 (M37): web.tunnel.status|start|stop|setToken|install|unlock and the
+    # web.tunnel.changed event.
+    "webTunnel",
     # 1.73.0 (M37 T3): external.open|create {transport: "pty"} run the CLI as a
     # terminal session (ExternalTerminal.kind "pty"); terminal profiles and options.
     "externalPty",
@@ -13787,7 +13790,6 @@ CAPABILITIES: list[str] = [
 #: ``not_implemented`` until then.
 PENDING_CAPABILITIES: dict[str, str] = {
     # M37 (1.73.0): each moves into CAPABILITIES when its work package lands.
-    "webTunnel": "web.tunnel.*: ngrok / Cloudflare tunnel for web.remote",
 }
 
 #: ``models.categories`` slots core routes by (1.33.0): ``fast`` and

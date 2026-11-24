@@ -143,10 +143,17 @@ def test_person_only_methods() -> None:
     assert not any(name in PERSON_METHODS for name in TERMINAL_METHODS)
 
 
-@pytest.mark.parametrize("name", [*TERMINAL_METHODS, *INTEGRATION_METHODS, *TUNNEL_METHODS])
+@pytest.mark.parametrize("name", TUNNEL_METHODS)
+def test_tunnel_methods_are_implemented(name: str, tmp_path: Path) -> None:
+    core = Core(settings=Settings(), paths=Paths.create(tmp_path / "home"), token="t")
+    assert build_dispatcher(core).has(name)  # real handlers since T4 (webTunnel)
+
+
+@pytest.mark.parametrize("name", [*TERMINAL_METHODS, *INTEGRATION_METHODS])
 def test_stubs_answer_not_implemented_cleanly(name: str, tmp_path: Path) -> None:
-    if (name in TERMINAL_METHODS and name != "terminal.unlock"
-            and "terminalSessions" in protocol.CAPABILITIES):
+    if name == "terminal.unlock":
+        pytest.skip("terminal.unlock is web.tunnel.unlock's alias (T4), tested in test_m37_tunnel")
+    if name in TERMINAL_METHODS and "terminalSessions" in protocol.CAPABILITIES:
         pytest.skip("terminalSessions landed (T1): real handlers, tested in test_m37_terminal_*")
     if name in INTEGRATION_METHODS and "cliIntegrations" in protocol.CAPABILITIES:
         pytest.skip("cliIntegrations landed (T2): real handlers, tested in test_m37_integration_*")

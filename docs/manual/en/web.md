@@ -145,6 +145,36 @@ A scheduled task a remote sign-in creates — with the schedule screen, with `/s
 
 Put TLS in front with a reverse proxy you run (Caddy, nginx), list the page's address in `allowedOrigins`, and set `trustProxy: true` so the daemon takes the visitor's address and the `https` scheme from the proxy's headers. Turn `trustProxy` on **only** when nothing but that proxy can reach the port — bind the listener to loopback (`--host 127.0.0.1`) or to the proxy's network, or firewall it. Anyone who can reach the port directly can otherwise claim any client address, and so get around the per-address sign-in limit. The daemon believes these headers only from a proxy on the same machine (a connection from `127.0.0.1` or `::1`); from anywhere else they are ignored and the connection's own address counts. A proxy on another host is therefore treated as one address.
 
+### A public address with a tunnel
+
+`snowpea web` can open a public HTTPS address for you through a tunnel program, so you can reach this computer from a phone or another network without opening a port or running a proxy. Three providers:
+
+| Provider | What you need | Address |
+|---|---|---|
+| `cloudflare-quick` | `cloudflared`; no account | a random `https://….trycloudflare.com`, new at every start |
+| `cloudflare` | `cloudflared`, a Cloudflare tunnel token and its hostname | your own `https://<hostname>` |
+| `ngrok` | `ngrok` and its authtoken | the `https://….ngrok-free.app` address ngrok gives you |
+
+The tunnel refuses to start unless **remote access is on and a web password is set** (`snowpea web --host … --port …`, `snowpea web password`): a public address with only the access link is not allowed. The listener must be reachable on this computer's loopback (`0.0.0.0` or `127.0.0.1`), because the tunnel program connects to it from here.
+
+```bash
+snowpea web tunnel install                      # download the tunnel program, if it is missing
+printf '%s\n' "$TOKEN" | snowpea web tunnel token --provider cloudflare   # or ngrok; read from stdin
+snowpea web tunnel start --provider cloudflare-quick --save   # --save keeps the provider for the next start
+snowpea web tunnel status                       # state, address, program, token set or not
+snowpea web tunnel stop
+```
+
+Settings (`web.remote.tunnel`, changed on this computer only): `provider` (`off`, `cloudflare-quick`, `cloudflare`, `ngrok`), `autoStart` (start with the daemon when the provider is set and the preconditions hold; default on), `hostname` (the public hostname of a `cloudflare` tunnel) and `binary` (a tunnel program to use before `PATH` and `~/.snowpea/bin`).
+
+- **The program.** snowpea looks for it in `binary`, then on `PATH`, then in `~/.snowpea/bin`. `snowpea web tunnel install` downloads a pinned `cloudflared` release from its official GitHub page and installs it only if its sha256 is the pinned value; on a mismatch nothing is written. Where no checksum is pinned (macOS, and ngrok everywhere) it refuses and prints the command to run yourself (`brew install cloudflared`, `brew install ngrok`, `snap install ngrok`, `winget install …`).
+- **Tokens.** The ngrok authtoken and the Cloudflare tunnel token are kept in `credentials.json` (mode 600), never in `settings.json`. Set them with `snowpea web tunnel token --provider …` (one line on stdin) or from a client's settings. They reach the tunnel program through its environment, not its command line, and are removed from anything snowpea logs or shows.
+- **Restarts.** If the tunnel program stops, snowpea starts it again after 2 s, then 4 s, 8 s and so on up to 60 s. It gives up after five starts in a row that never showed an address; `snowpea web tunnel status` says why. A quick tunnel gets a new address after a restart; clients are told through the `web.tunnel.changed` event.
+- **Origins and proxy headers.** While the tunnel runs, its address is an allowed origin for the page's WebSocket and the visitor's address and `https` scheme are taken from the tunnel's headers (`CF-Connecting-IP`, `X-Forwarded-*`) — but only from a connection on this computer, where the tunnel program connects from. Nothing is written to `allowedOrigins`.
+- **Terminals over the tunnel.** A page opened through the tunnel can look at a terminal after sign-in, but starting a terminal, typing into one, or any dangerous option needs a **terminal unlock**: the page asks for the web password again (`web.tunnel.unlock`), and the unlock lasts as long as that sign-in. Dangerous options are refused over the tunnel unless `maxMode` is `auto`.
+
+A tunnel makes the page reachable by anyone who can guess the address, so everything in "What a remote sign-in is" applies: use a long password, and stop the tunnel when you do not need it.
+
 ## The screen
 
 The layout follows the DeepSeek Harness web client: three columns, with the conversation in the middle.

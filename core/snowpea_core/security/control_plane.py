@@ -125,6 +125,7 @@ CONTROL: tuple[ControlEntry, ...] = (
     ControlEntry("commands", "ask", "your own commands"),
     ControlEntry("agents", "ask", "your own agent definitions"),
     ControlEntry("lsp", "ask", "the language servers snowpea installed and runs"),
+    ControlEntry("bin", "ask", "programs snowpea installed and runs (the web tunnel)"),
     ControlEntry(".claude", "ask", "the Claude Code folder kept in snowpea's home"),
     ControlEntry(".codex", "ask", "the Codex folder kept in snowpea's home"),
 )
