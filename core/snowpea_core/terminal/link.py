@@ -137,6 +137,7 @@ async def spawn_holder(
     cols: int,
     rows: int,
     command: list[str] | None = None,
+    watch_interval: float | None = None,
 ) -> dict[str, Any]:
     """Start a holder; returns ``{pid, child, socket, token}``."""
     folder = terminals_dir(home)
@@ -151,6 +152,7 @@ async def spawn_holder(
         "token": token,
         "socket": socket_path(home, terminal_id),
         "dir": str(folder),
+        "watchInterval": watch_interval,
     }
     ready = await asyncio.wait_for(
         asyncio.to_thread(_start, command or holder_command(), folder, f"{terminal_id}.log", spec),

@@ -6,6 +6,8 @@ Every test runs against an isolated ``SNOWPEA_HOME`` so the developer's real
 
 from __future__ import annotations
 
+import atexit
+import contextlib
 import tempfile
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
@@ -166,6 +168,41 @@ def _no_legacy_settings_carry_over() -> Iterator[None]:
     LEGACY_VALUES.clear()
     yield
     LEGACY_VALUES.clear()
+
+
+def _end_terminals_under(root: Path) -> None:
+    """End the terminal holders of every home just below ``root`` (M37)."""
+    from snowpea_core.terminal.manager import close_all_holders
+
+    for pattern in ("terminals", "*/terminals", "*/*/terminals"):
+        for folder in root.glob(pattern):
+            if folder.is_dir():
+                close_all_holders(folder.parent, timeout=2.0)
+
+
+@pytest.fixture(autouse=True)
+def _reap_terminal_holders(request: pytest.FixtureRequest) -> Iterator[None]:
+    """Terminal holders outlive daemons by design: a test's are ended after it (M37)."""
+    root = request.getfixturevalue("tmp_path") if "tmp_path" in request.fixturenames else None
+    yield
+    if root is not None:
+        _end_terminals_under(root)
+
+
+def _end_started_holders() -> None:
+    """At exit: any holder this process started that still runs gets SIGTERM."""
+    import os
+    import signal
+
+    from snowpea_core.terminal import link
+
+    for proc in list(link._STARTED):  # noqa: SLF001
+        if proc.poll() is None:
+            with contextlib.suppress(OSError):
+                os.kill(proc.pid, signal.SIGTERM)
+
+
+atexit.register(_end_started_holders)
 
 
 @pytest.fixture(scope="session", autouse=True)

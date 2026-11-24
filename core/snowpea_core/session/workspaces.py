@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sqlite3
+import threading
 import uuid
 import weakref
 from datetime import UTC, datetime
@@ -49,6 +51,10 @@ SESSION_FLAGS: tuple[tuple[str, str], ...] = (("pinned", "INTEGER"), ("archived"
 #: store is gone, so a new store at the same address was taken as ready and its
 #: tables were never made ("no such table: workspaces").
 _READY: dict[int, weakref.ref[Any]] = {}
+#: Two first calls at once (session.list and workspace.add right after connect)
+#: ran the migration on two threads: both saw no column and the second ALTER
+#: failed with "duplicate column name".  One migration at a time.
+_ENSURE_LOCK = threading.Lock()
 
 
 def canonical(path: str | os.PathLike[str]) -> str:
@@ -68,13 +74,27 @@ def _title_for(path: str) -> str:
 
 
 def _ensure_sync(store: Store) -> None:
+    with _ENSURE_LOCK:
+        _ensure_locked(store)
+
+
+def _add_column(store: Store, name: str, decl: str) -> None:
+    try:
+        store._execute(f"ALTER TABLE sessions ADD COLUMN {name} {decl}")
+    except sqlite3.OperationalError as exc:
+        # Another connection to the same file (another process) added it first.
+        if "duplicate column" not in str(exc).lower():
+            raise
+
+
+def _ensure_locked(store: Store) -> None:
     for statement in SCHEMA.split(";"):
         if statement.strip():
             store._execute(statement)
     existing = {str(row["name"]) for row in store._query("PRAGMA table_info(sessions)")}
     for name, decl in SESSION_FLAGS:
         if name not in existing:
-            store._execute(f"ALTER TABLE sessions ADD COLUMN {name} {decl}")
+            _add_column(store, name, decl)
     if store._query("SELECT 1 FROM workspace_meta WHERE key = ?", (ADOPTED_KEY,)):
         return
     if store._query("SELECT COUNT(*) AS n FROM workspaces")[0]["n"]:

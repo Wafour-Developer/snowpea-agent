@@ -1872,8 +1872,22 @@ async def daemon_start(home: Path | str | None = None) -> int:
     return EXIT_OK
 
 
-async def daemon_stop(home: Path | str | None = None) -> int:
-    """``snowpea daemon stop`` — ``system.shutdown``, then wait for the process."""
+async def daemon_stop(home: Path | str | None = None, *, and_terminals: bool = False) -> int:
+    """``snowpea daemon stop [--and-terminals]`` — ``system.shutdown``, then wait.
+
+    Terminal sessions outlive a daemon stop; ``--and-terminals`` ends them too
+    (after the daemon, without RPC: each holder runs the kill sequence).
+    """
+    code = await _daemon_stop(home)
+    if and_terminals:
+        from snowpea_core.terminal.manager import close_all_holders
+
+        ended = await asyncio.to_thread(close_all_holders, resolve_home(home))
+        print(f"ended {ended} terminal session{'' if ended == 1 else 's'}")
+    return code
+
+
+async def _daemon_stop(home: Path | str | None = None) -> int:
     resolved = resolve_home(home)
     info = read_daemon_json(resolved)
     if info is None:
@@ -3467,7 +3481,11 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     status_parser = daemon_sub.add_parser("status", help="show the running daemon")
     status_parser.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
     daemon_sub.add_parser("start", help="start the daemon if it is not running")
-    daemon_sub.add_parser("stop", help="ask the daemon to shut down")
+    stop_parser = daemon_sub.add_parser("stop", help="ask the daemon to shut down")
+    stop_parser.add_argument(
+        "--and-terminals", dest="and_terminals", action="store_true",
+        help="also end every terminal session (they outlive a normal stop)",
+    )
 
     gateway = sub.add_parser("gateway", help="attach chat platforms to agents or sessions")
     gateway_sub = gateway.add_subparsers(dest="action", metavar="<action>")
@@ -4156,7 +4174,8 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
         if action == "start":
             return await daemon_start(home)
         if action == "stop":
-            return await daemon_stop(home)
+            and_terminals = bool(getattr(args, "and_terminals", False))
+            return await daemon_stop(home, and_terminals=and_terminals)
         return _fail("usage: snowpea daemon status|start|stop", EXIT_USAGE)
     if subcommand == "integration":
         from snowpea_core.cli.integration_cmd import integration_command

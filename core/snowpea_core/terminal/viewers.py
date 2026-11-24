@@ -40,6 +40,9 @@ class Viewer:
     backlog: deque[bytes] = field(default_factory=deque)
     backlog_bytes: int = 0
     needs_repaint: bool = False
+    #: Attaching: its repaint is not built yet, so live output (which the
+    #: repaint will contain) is not sent to it.
+    paused: bool = False
     active: int = field(default_factory=lambda: next(_order))
 
     @property
@@ -143,7 +146,7 @@ class ViewerSet:
         self.seq += len(data)
         out: list[Delivery] = []
         for viewer in self._viewers.values():
-            if viewer.needs_repaint:
+            if viewer.needs_repaint or viewer.paused:
                 continue
             if viewer.backlog or viewer.unacked >= self.credit:
                 self._queue(viewer, data)

@@ -61,6 +61,12 @@ HELLO_TIMEOUT = 5.0
 BYE_TIMEOUT = 10.0
 #: After the exit: how long to keep reading output still in the PTY.
 DRAIN_TIMEOUT = 0.2
+#: How often the holder checks that its terminal still exists: its home, its
+#: meta file and (Unix) its socket.  Gone means nobody can ever reach it again,
+#: so it ends its program (the kill sequence) and itself.
+WATCH_INTERVAL = 5.0
+#: Kill sequence steps (same as the daemon's, §2.1).
+KILL_STEPS: tuple[tuple[str, float], ...] = (("hup", 0.5), ("term", 0.5), ("kill", 2.0))
 
 
 def frame(kind: int, payload: bytes = b"") -> bytes:
@@ -101,6 +107,10 @@ class Holder:
         self._eof = asyncio.Event()
         self.server: asyncio.AbstractServer | None = None
         self.address = ""
+        #: The terminal is gone (home, meta or socket removed): end without traces.
+        self.orphaned = False
+        self._ending: asyncio.Future[None] | None = None
+        self._child_done = False
 
     # -- start --------------------------------------------------------------
     async def start(self) -> dict[str, Any]:
@@ -199,19 +209,27 @@ class Holder:
 
     # -- run ----------------------------------------------------------------
     async def run(self) -> int:
-        code = await self.pty.wait()
+        self._install_terminate()
+        watch = asyncio.ensure_future(self._watch())
+        try:
+            code = await self.pty.wait()
+            self._child_done = True
+        finally:
+            watch.cancel()
         # The exit code goes out only after the last output.
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._eof.wait(), DRAIN_TIMEOUT)
         self.pty.drain()
         self.exit_code = code
         self.exited.set()
-        self._write_json(f"{self.id}.exit.json", {"code": code, "at": time.time()})
+        if not self.orphaned:
+            self._write_json(f"{self.id}.exit.json", {"code": code, "at": time.time()})
         self._send(EXIT, json.dumps({"code": code}).encode())
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(self.bye.wait(), BYE_TIMEOUT)
-        if not self.bye.is_set():
-            self._write_bytes(f"{self.id}.tail", bytes(self.tail))
+        if not self.orphaned:
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self.bye.wait(), BYE_TIMEOUT)
+            if not self.bye.is_set():
+                self._write_bytes(f"{self.id}.tail", bytes(self.tail))
         self.pty.close()
         if self.server is not None:
             self.server.close()
@@ -219,6 +237,57 @@ class Holder:
             with contextlib.suppress(OSError):
                 os.unlink(self.address)
         return code
+
+    # -- ending without a core ----------------------------------------------
+    def _install_terminate(self) -> None:
+        """SIGTERM / SIGINT to the holder: end the program (kill sequence), then go.
+
+        The daemon never signals holders on its own stop (terminals outlive
+        it); this is for ``snowpea daemon stop --and-terminals`` and cleanup.
+        """
+        if sys.platform == "win32":  # pragma: no cover - no POSIX signals there
+            return
+        import signal
+
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            with contextlib.suppress(NotImplementedError, RuntimeError, ValueError):
+                loop.add_signal_handler(sig, self.terminate)
+
+    def terminate(self, *, orphaned: bool = False) -> None:
+        if orphaned:
+            self.orphaned = True
+        if self._ending is None:
+            self._ending = asyncio.ensure_future(self._kill_sequence())
+
+    async def _kill_sequence(self) -> None:
+        self.bye.set()  # nobody waits for the exit: do not linger after it
+        for name, wait in KILL_STEPS:
+            if self.exited.is_set():
+                return
+            self.pty.signal(name)
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._child_gone(), wait)
+                return
+
+    async def _child_gone(self) -> None:
+        while not self._child_done:
+            await asyncio.sleep(0.02)
+
+    def gone(self) -> bool:
+        """The terminal no longer exists for anyone: home, meta file or socket removed."""
+        if not self.dir.is_dir() or not (self.dir / f"{self.id}.json").exists():
+            return True
+        return bool(self.address and not self.address.startswith("tcp:")
+                    and not os.path.exists(self.address))
+
+    async def _watch(self) -> None:
+        interval = float(self.spec.get("watchInterval") or WATCH_INTERVAL)
+        while True:
+            await asyncio.sleep(interval)
+            if self.gone():
+                self.terminate(orphaned=True)
+                return
 
     def _write_bytes(self, name: str, data: bytes) -> None:
         path = self.dir / name

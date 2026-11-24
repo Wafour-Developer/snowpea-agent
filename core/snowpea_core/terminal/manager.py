@@ -61,6 +61,12 @@ KILL_WAIT = 2.0
 POLL_INTERVAL = 0.1
 #: Reconnect attempts after a holder link drops while the holder still runs.
 RECONNECT_TRIES = 5
+#: Raw output kept per terminal to rebuild (reflow) the screen after a resize;
+#: pyte replays about 1 MiB a second, and the holder's tail is 1 MiB too.
+RAW_KEEP = 1024 * 1024
+REFLOW_DEBOUNCE = 0.15
+#: How long read / attach wait for a pending reflow before using the old screen.
+REFLOW_WAIT = 5.0
 TERMINAL_ID_RE = re.compile(r"^t[0-9a-f]{8}$")
 _ANSI_RE = re.compile(rb"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])")
 
@@ -74,6 +80,16 @@ Send = Callable[[Any, str, dict[str, Any]], Awaitable[None] | None]
 
 class TerminalError(RpcError):
     pass
+
+
+def _observe_only(action: str) -> TerminalError:
+    """An observe-mode viewer may watch, never type or resize: a clear refusal."""
+    return TerminalError(
+        errors.UNAVAILABLE,
+        f"this connection attached as an observer and cannot {action} the terminal; "
+        "attach with mode interactive first",
+        {"reason": "observe_only"},
+    )
 
 
 def _utc_now() -> str:
@@ -181,6 +197,11 @@ class Terminal:
         self.transcript_path: str | None = None
         self._waiters: list[_Waiter] = []
         self._exited = asyncio.Event()
+        #: Raw output (the last :data:`RAW_KEEP` bytes) for rebuilding after a resize.
+        self.raw = bytearray()
+        self.raw_total = 0
+        self._reflow_gen = 0
+        self._reflow_task: asyncio.Future[None] | None = None
         #: Started by this daemon and not yet connected (see :meth:`on_data`).
         self.fresh = False
 
@@ -242,6 +263,7 @@ class Terminal:
         now = self.manager.clock()
         self.last_output_at = now
         self.status.on_output(now)
+        self._keep_raw(data)
         events = self.screen.feed(data)
         self._handle_events(events, live=True)
         self.manager.deliver(self, self.viewers.broadcast(data))
@@ -252,6 +274,8 @@ class Terminal:
         """A reattach: rebuild the screen from the holder's tail (no queries answered)."""
         self.screen = Screen(self.screen.cols, self.screen.rows)
         self.viewers._repaint = self.screen.repaint
+        self.raw.clear()
+        self._keep_raw(data)
         events = self.screen.feed(data)
         self._handle_events(events, live=False)
         for viewer in self.viewers:
@@ -319,9 +343,53 @@ class Terminal:
         cols, rows = (owner.cols, owner.rows) if owner else (HEADLESS_COLS, HEADLESS_ROWS)
         assert cols and rows
         if (cols, rows) != (self.screen.cols, self.screen.rows):
+            # pyte does not reflow: resize now (cheap), then rebuild the screen
+            # from the raw output at the new size off the event loop.
             self.screen.resize(cols, rows)
             if self.link is not None and self.alive:
                 self.link.resize(cols, rows)
+            self._schedule_reflow()
+
+    # -- reflow ----------------------------------------------------------------
+    def _keep_raw(self, data: bytes) -> None:
+        self.raw += data
+        self.raw_total += len(data)
+        if len(self.raw) > RAW_KEEP:
+            del self.raw[: len(self.raw) - RAW_KEEP]
+
+    def _schedule_reflow(self) -> None:
+        self._reflow_gen += 1
+        self._reflow_task = asyncio.ensure_future(self._reflow(self._reflow_gen))
+
+    async def _reflow(self, gen: int) -> None:
+        await asyncio.sleep(REFLOW_DEBOUNCE)  # a drag sends many sizes: rebuild the last
+        if gen != self._reflow_gen:
+            return
+        cols, rows = self.screen.cols, self.screen.rows
+        snapshot, upto = bytes(self.raw), self.raw_total
+        rebuilt = await asyncio.to_thread(_rebuild_screen, snapshot, cols, rows)
+        if gen != self._reflow_gen or (cols, rows) != (self.screen.cols, self.screen.rows):
+            return
+        missed = self.raw_total - upto
+        if missed > len(self.raw):
+            self._schedule_reflow()  # more output than we keep arrived meanwhile
+            return
+        if missed:
+            rebuilt.feed(bytes(self.raw[-missed:]))
+        if not rebuilt.title:
+            rebuilt.title = self.screen.title
+        self.screen = rebuilt
+        self.viewers._repaint = rebuilt.repaint
+
+    async def settled(self, timeout: float = REFLOW_WAIT) -> None:
+        """Wait for a pending reflow (read and repaint then see the new size's lines)."""
+        task = self._reflow_task
+        while task is not None and not task.done():
+            with contextlib.suppress(TimeoutError, asyncio.CancelledError):
+                await asyncio.wait_for(asyncio.shield(task), timeout)
+            if task is self._reflow_task:
+                break
+            task = self._reflow_task
 
 
 class TerminalManager:
@@ -344,6 +412,8 @@ class TerminalManager:
         self._max = max_terminals
         self.clock = clock
         self._holder_command = holder_command
+        #: How often a holder checks its terminal still exists (tests shorten it).
+        self.holder_watch_interval: float | None = None
         self._report_address = report_address
         self._terminals: dict[str, Terminal] = {}
         self._poll_task: asyncio.Task[None] | None = None
@@ -416,15 +486,7 @@ class TerminalManager:
         os.replace(tmp, path)
 
     def _remove_files(self, terminal_id: str, socket: str = "") -> None:
-        if not TERMINAL_ID_RE.match(terminal_id):
-            return
-        folder = self._dir()
-        for suffix in (".json", ".json.tmp", ".exit.json", ".tail", ".log", ".sock"):
-            with contextlib.suppress(OSError):
-                (folder / f"{terminal_id}{suffix}").unlink()
-        if socket and not socket.startswith("tcp:") and socket.endswith(f"{terminal_id}.sock"):
-            with contextlib.suppress(OSError):
-                os.unlink(socket)
+        remove_terminal_files(self._dir(), terminal_id, socket)
 
     # -- lifecycle ---------------------------------------------------------------
     async def start(self) -> None:
@@ -625,6 +687,7 @@ class TerminalManager:
                 ready = await spawn_holder(
                     self.home, terminal_id, argv=spec.argv, env=env, cwd=spec.cwd,
                     cols=spec.cols, rows=spec.rows, command=self._holder_command,
+                    watch_interval=self.holder_watch_interval,
                 )
             except (HolderError, OSError, TimeoutError) as exc:
                 self._terminals.pop(terminal_id, None)
@@ -662,13 +725,19 @@ class TerminalManager:
         term = self.get(terminal_id)
         if mode not in ("interactive", "observe"):
             raise TerminalError(errors.INVALID_PARAMS, f"unknown attach mode {mode}")
-        term.viewers.attach(conn, mode, cols, rows)
+        viewer = term.viewers.attach(conn, mode, cols, rows)
         if mode == "interactive" and term.alive:
             term.apply_size()
-        repaint = term.screen.repaint()
+        viewer.paused = True  # output during the wait is in the repaint below
+        try:
+            await term.settled()
+            repaint = term.screen.repaint()
+            seq = term.viewers.seq
+        finally:
+            viewer.paused = False
         return {
             "repaint": base64.b64encode(repaint).decode("ascii"),
-            "seq": term.viewers.seq,
+            "seq": seq,
             "cols": term.screen.cols,
             "rows": term.screen.rows,
             "status": term.status.status.wire(),
@@ -697,7 +766,7 @@ class TerminalManager:
         term = self._alive(terminal_id)
         viewer = term.viewers.get(conn)
         if viewer is not None and not viewer.interactive:
-            raise TerminalError(errors.INVALID_PARAMS, "an observer cannot type")
+            raise _observe_only("type into")
         if viewer is not None:
             owner_before = term.viewers.size_owner()
             viewer.touch()
@@ -714,7 +783,7 @@ class TerminalManager:
         if not term.viewers.resize(conn, cols, rows):
             viewer = term.viewers.get(conn)
             if viewer is not None and not viewer.interactive:
-                raise TerminalError(errors.INVALID_PARAMS, "an observer cannot resize")
+                raise _observe_only("resize")
             raise TerminalError(errors.INVALID_PARAMS, "attach before resizing")
         if term.alive:
             term.apply_size()
@@ -730,6 +799,10 @@ class TerminalManager:
         if not term.alive:
             raise TerminalError(TERMINAL_EXITED, f"terminal {terminal_id} has ended")
         return term
+
+    async def settle(self, terminal_id: str) -> None:
+        """Wait for a pending reflow of this terminal (see :meth:`Terminal.settled`)."""
+        await self.get(terminal_id).settled()
 
     def read(self, terminal_id: str, lines: int = 60) -> dict[str, Any]:
         term = self.get(terminal_id)
@@ -889,6 +962,71 @@ class TerminalManager:
         for terminal_id in list(self._terminals):
             with contextlib.suppress(Exception):
                 await self.close(terminal_id)
+
+
+def _rebuild_screen(raw: bytes, cols: int, rows: int) -> Screen:
+    """A fresh screen at ``cols`` x ``rows`` fed ``raw`` (runs on a worker thread)."""
+    screen = Screen(cols, rows)
+    screen.feed(raw)
+    return screen
+
+
+
+def remove_terminal_files(folder: Path, terminal_id: str, socket: str = "") -> None:
+    """Delete one terminal's files (exact names built from a validated id only)."""
+    if not TERMINAL_ID_RE.match(terminal_id):
+        return
+    for suffix in (".json", ".json.tmp", ".exit.json", ".tail", ".log", ".sock"):
+        with contextlib.suppress(OSError):
+            (folder / f"{terminal_id}{suffix}").unlink()
+    if socket and not socket.startswith("tcp:") and socket.endswith(f"{terminal_id}.sock"):
+        with contextlib.suppress(OSError):
+            os.unlink(socket)
+
+
+def close_all_holders(home: Path | str, *, timeout: float = 3.0) -> int:
+    """End every terminal of ``home`` without a daemon or RPC; returns how many ran.
+
+    Each live holder (pid checked against its recorded start time) gets
+    SIGTERM, on which it runs the kill sequence on its program and exits;
+    one still there after ``timeout`` is killed.  Every terminal's files go.
+    For ``snowpea daemon stop --and-terminals`` and test cleanup — a normal
+    daemon stop leaves terminals running.
+    """
+    folder = Path(home) / "terminals"
+    if not folder.is_dir():
+        return 0
+    entries: list[tuple[str, int | None, str | None, str]] = []
+    for path in sorted(folder.glob("t*.json")):
+        if not TERMINAL_ID_RE.match(path.stem):
+            continue
+        try:
+            meta = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            meta = {}
+        pid = meta.get("pid") if isinstance(meta.get("pid"), int) else None
+        entries.append((path.stem, pid, meta.get("holderStarted"), str(meta.get("socket") or "")))
+    running = [pid for _, pid, started, _ in entries if pid and _holder_alive(pid, started)]
+    for pid in running:
+        _terminate_pid(pid)
+    deadline = time.monotonic() + timeout
+    left = list(running)
+    while left and time.monotonic() < deadline:
+        time.sleep(0.05)
+        left = [pid for pid in left if _holder_alive(pid, None)]
+    for pid in left:
+        _kill_pid(pid)
+    for terminal_id, _, _, socket in entries:
+        remove_terminal_files(folder, terminal_id, socket)
+    return len(running)
+
+
+def _terminate_pid(pid: int) -> None:
+    if IS_WINDOWS:  # pragma: no cover - Windows only: no SIGTERM, end the tree
+        _kill_pid(pid)
+        return
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.kill(pid, _signal.SIGTERM)
 
 
 def _core_bin() -> str:

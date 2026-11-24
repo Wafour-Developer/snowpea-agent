@@ -358,7 +358,9 @@ async def ack_handler(conn: RpcConnection, params: TerminalAckParams, core: Core
 
 async def read_handler(_conn: RpcConnection, params: TerminalReadParams,
                        core: Core) -> dict[str, Any]:
-    return ensure_manager(core).read(params.terminalId, params.lines)
+    manager = ensure_manager(core)
+    await manager.settle(params.terminalId)
+    return manager.read(params.terminalId, params.lines)
 
 
 async def send_handler(conn: RpcConnection, params: TerminalSendParams,
