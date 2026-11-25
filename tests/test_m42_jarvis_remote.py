@@ -35,6 +35,34 @@ from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import PROTOCOL_VERSION, TerminalCreateParams
 from snowpea_core.tools.registry import ToolContext
 
+# A stand-in for the codex/claude TUI: CI machines have neither CLI installed.
+FAKE_CLI = r'''#!/usr/bin/env python3
+import sys
+sys.stdout.write("\x1b]7501;state=idle\x1b\\cli> ")
+sys.stdout.flush()
+for line in sys.stdin:
+    sys.stdout.write("got:" + line.strip() + "\r\ncli> ")
+    sys.stdout.flush()
+'''
+
+
+@pytest.fixture
+def fake_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Terminal profiles find a fake CLI (``profiles.cli_state``), never a real one."""
+    from snowpea_core.external import claude, codex
+    from snowpea_core.terminal import profiles
+
+    script = tmp_path / "fake-cli-bin" / "fake-cli"
+    script.parent.mkdir()
+    script.write_text(FAKE_CLI, encoding="utf-8")
+    script.chmod(0o755)
+
+    async def state(_core, cli: str) -> profiles.CliState:
+        modes = codex.NATIVE_MODES if cli == "codex" else claude.NATIVE_MODES
+        return profiles.CliState(str(script), modes, [])
+
+    monkeypatch.setattr(profiles, "cli_state", state)
+
 
 async def _pair_connected(local, remote) -> str:
     info = DaemonInfo(port=remote.port, pid=0, token=remote.token, protocolVersion=PROTOCOL_VERSION)
@@ -339,6 +367,7 @@ async def test_remote_terminal_write_pauses_machine_qualified_key(daemon_pair) -
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("fake_cli")
 async def test_jarvis_created_terminal_starts_with_switch_on(tmp_path: Path) -> None:
     from _support import make_daemon
     from snowpea_core.jarvis.terminals import key_of
@@ -605,6 +634,7 @@ async def test_remote_session_event_human_message_pauses_jarvis_message_does_not
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("fake_cli")
 async def test_remote_external_session_visibility_tools_and_wake(daemon_pair, monkeypatch) -> None:
     from snowpea_core.jarvis.tools import PROMPT_PREFIX
     from snowpea_core.server.external_handlers import ensure_manager as external_manager
@@ -645,6 +675,12 @@ async def test_remote_external_session_visibility_tools_and_wake(daemon_pair, mo
     monkeypatch.setattr(manager, "read", fake_read)
     monkeypatch.setattr(manager, "send", fake_send)
     monkeypatch.setattr(manager, "interrupt", fake_interrupt)
+
+    # This computer has no external sessions of its own (and, on CI, no CLI installed).
+    async def no_local_sessions(**_kw):
+        return {"sessions": [], "nextBefore": None}
+
+    monkeypatch.setattr(external_manager(local.core), "list_sessions", no_local_sessions)
 
     intake = local.core.jarvis.intake
     assert intake is not None

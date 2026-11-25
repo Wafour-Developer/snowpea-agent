@@ -31,9 +31,11 @@ pointed into the scratch directory, so your own `uv tool` installs are
 untouched.
 
 No API key is needed: `SNOWPEA_PROVIDER=fake:tests/fixtures/providers/fake/e2e.json`
-replaces every model call with the deterministic scripted provider. When a step
-changes what the agent is asked, the matching entry in that fixture has to
-change with it — the fixture matches on a substring of the prompt.
+replaces every model call with the deterministic scripted provider. The smoke
+sets `SNOWPEA_KEY_VERIFY=0` so step 2's fixture setup key is not checked
+against DeepSeek. When a step changes what the agent is asked, the matching
+entry in that fixture has to change with it — the fixture matches on a substring
+of the prompt.
 
 ## Reading the output
 

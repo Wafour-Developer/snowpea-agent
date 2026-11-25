@@ -97,6 +97,8 @@ note() { printf '     %s\n' "$*"; }
 # ---------------------------------------------------------------------------
 
 export SNOWPEA_HOME="$E2E_HOME"
+# Fixture setup key is not a live DeepSeek key; skip vendor verify (providerKeyVerify).
+export SNOWPEA_KEY_VERIFY=0
 export SNOWPEA_PROVIDER="fake:$FAKE_SCRIPT"
 export UV_TOOL_DIR="$TOOL_ROOT/tools"
 export UV_TOOL_BIN_DIR="$TOOL_ROOT/bin"
