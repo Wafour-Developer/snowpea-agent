@@ -86,21 +86,14 @@ The container uses Docker's default bridge network: it can reach the internet an
 - **The network is open** (above), and the secrets are readable (above).
 - It is a container, not a virtual machine: it shares the host's kernel. Treat it as protection against accidents and a careless agent, not against a determined attacker with a kernel exploit.
 
-## For a program: `snowpea remote up --docker`
+## The `remote up --docker` command is gone
 
-An app with its own UI (the snowpea browser) starts the same container without a terminal UI:
-
-```
-snowpea remote up --docker --cwd ~/src/app --json
-snowpea-core remote up --docker my/snowpea-dev:1 --docker-volume work --cwd ~/src/app --json
-```
-
-The image, the mounts, the credentials copy and the token handling are exactly those above. Instead of starting the UI, the command prints JSON lines on stdout: `ready` with `port`, `token`, `version`, `protocol`, `machine` (`container: true`) and `cwd` once the daemon answers, then `closed` when it ends. The token is in the `ready` line only. Ending stdin, SIGTERM or SIGINT stops the container (removes it unless `--docker-keep`), prints `closed` and exits 0. The image build's output goes to stderr. Failures are `error` events: `dockerMissing` (no Docker, its daemon is down, permission denied, or Windows), `dockerBuild` (the image would not build), `versionMajor` (a given `IMAGE` speaks another major protocol), otherwise `internal`. A container that stops by itself ends the run with `error` instead of being replaced. The events, the codes and the idle timeout are described in [Remote sessions](remote.md#for-a-program-snowpea-remote-up).
+`snowpea remote up --docker` (and `snowpea-core remote up`) was removed in 1.78.0. Use `snowpea --docker` in a terminal for a sandbox session. A computer you reach over SSH is a [remote machine](machines.md), not a sandbox.
 
 ## Requirements and limits
 
 - Docker Engine or Docker Desktop that your user can run (`docker info` works). Linux and macOS; Windows is not supported yet.
-- Interactive terminal UI only: `--docker` does not combine with `-c`, a subcommand, or `--remote`.
+- Interactive terminal UI only: `--docker` does not combine with `-c` or a subcommand.
 - A path you attach or mention is read inside the container, so it must be under the project directory.
 - Microphone and speakers do not reach the container, so voice input and spoken replies are not available.
 - No browser opens inside it: an MCP server's browser login (OAuth) cannot finish in the sandbox. Log in on the host first; the result is copied in.

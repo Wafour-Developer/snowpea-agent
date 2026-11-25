@@ -337,6 +337,19 @@ snowpea service uninstall
 
 `workers status`(예전 이름 `team status`)는 돌고 있는 팀의 태스크별 상태와 재시도 횟수를 보여줍니다. `team list`·`create`·`use`·`delete`는 재사용 가능한 에이전트 팀 쪽입니다. `/team create`가 쓰는 것과 같은 `<workdir>/.snowpea/settings.json`의 프로젝트 팀을 전역 팀과 함께 보여주고, 활성 팀에 표시를 붙입니다. `team delete`는 프로젝트 팀만 지웁니다. `service`는 데몬을 로그인 시 자동 시작하도록 등록합니다 — Linux에서는 systemd 사용자 유닛, macOS에서는 launchd 에이전트, Windows에서는 예약 작업입니다. 기본값은 꺼짐이고, 스케줄과 게이트웨이가 터미널 로그인 없이도 재부팅을 넘겨 살아남아야 할 때만 필요합니다.
 
+### 머신과 터미널
+
+```bash
+snowpea machine list
+snowpea machine add user@host --label build
+snowpea machine connect <id>
+snowpea machine disconnect <id>
+snowpea machine remove <id>
+snowpea term ls --machine <id>
+```
+
+`machine`은 SSH [원격 머신](machines.md)을 관리합니다. `add`는 머신을 등록만 하고, `connect`가 연결을 엽니다. `--key PATH`는 개인 키 파일을 지정하고, `--json`은 결과를 그대로 출력합니다. `term`은 터미널을 나열하고, 읽고, 입력하고, 붙습니다([터미널 세션](terminals.md#snowpea-term-명령)). `--machine <id>`를 쓰거나 id 자리에 `MACHINE:ID`를 쓰면 원격 머신의 터미널에 닿습니다. `snowpea --remote`와 `snowpea remote up`은 1.78.0에서 없어졌습니다.
+
 ### 전역 옵션
 
 | 옵션 | 의미 |

@@ -1,40 +1,91 @@
-# 원격 머신
+# 원격 머신 (beta)
 
-snowpea는 snowpea가 설치된 다른 PC로 SSH 연결을 여러 개 유지할 수 있습니다. IDE, 웹, CLI에서 그 컴퓨터의 세션과 터미널을 로컬 데몬을 통해 열지만, 실제 작업은 원격 PC에서 돌아갑니다.
+원격 머신을 쓰면 이 컴퓨터에서 SSH로 다른 컴퓨터의 snowpea를 다룰 수 있습니다. 추가한 머신마다 그 컴퓨터의 snowpea 세션과 터미널이 왼쪽 사이드바의 **Machines** 아래에, 이 컴퓨터의 것과 나란히 보입니다. 실제 작업은 원격 컴퓨터에서 돌고 로컬 데몬은 그 컴퓨터에 연결해서 보이는 화면과 입력을 중계할 뿐입니다.
 
-## 머신 등록
+이 기능은 예전의 원격 모드인 `snowpea --remote`와 `snowpea remote up`을 대신합니다(1.78.0에서 제거됨). 무엇이 바뀌었는지는 [원격 세션](remote.md)을 보세요.
 
-IDE 사이드바 **Machines → Add machine**에서 `user@host[:port]`, 라벨, 그리고 개인 키 파일 경로 또는 붙여 넣은 키를 입력합니다. 붙여 넣은 키는 `$SNOWPEA_HOME/machines/<id>/id_key`에 저장되며(모드 0600) 이 컴퓨터 밖으로 나가지 않습니다.
+다른 언어: [English](../en/machines.md) · [전체 목록](../README.md)
 
-데몬은 호스트 키 신뢰(첫 접속 시)와, 필요하면 원격에 snowpea 설치를 묻습니다. `snowpea remote up`과 같은 흐름입니다.
+관련: [원격 세션](remote.md) · [자비스 모드 (beta)](jarvis.md#원격-머신) · [터미널 세션 (beta)](terminals.md) · [snowpea 웹](web.md) · [보안 목록](security.md)
 
-## 사용
+## 사이드바
 
-머신이 연결되면 사이드바에 그 PC의 프로젝트 폴더가 보입니다. CLI 세션을 열 때 로컬과 같은 세션 목록·권한 선택을 씁니다. 터미널은 원격 데몬이 제공하고 로컬에서 프록시합니다.
+왼쪽 사이드바의 **Machines** 영역은 프로젝트 아래에 있습니다.
 
-허용된 RPC에 `machine: "<id>"`를 넣습니다(`workspace.list`, `session.*`, `external.*`, `terminal.*`). `machine`을 보내지 않는 예전 클라이언트는 이 컴퓨터만 봅니다.
+- **This computer**(이 컴퓨터)가 맨 위에 항상 있습니다.
+- 추가한 머신이 그 아래에 하나씩 옵니다. 각 머신은 접었다 펼 수 있고 그 아래에 프로젝트가 보입니다.
+- 연결되지 않은 머신은 상태를 표시합니다. 연결해야 프로젝트가 보입니다.
+
+## 머신 추가
+
+사이드바에서 **Machines → Add machine**을 고르고 다음을 입력합니다.
+
+- 대상: `user@host` 또는 `user@host:port`;
+- 선택 사항인 라벨: 사이드바에 대상 대신 표시됩니다;
+- 접속 방법: 개인 키 파일의 경로, 또는 붙여 넣은 개인 키.
+
+붙여 넣은 키는 `$SNOWPEA_HOME/machines/<id>/id_key`에 모드 0600으로 저장되며 이 컴퓨터 밖으로 나가지 않습니다. 키 파일은 있는 자리에서 그대로 씁니다. 경로는 일반 파일의 절대 경로여야 합니다.
+
+명령줄에서도 같은 일을 할 수 있습니다.
+
+```bash
+snowpea machine add user@host:2222 --label build --key ~/.ssh/build_ed25519
+```
+
+처음 연결할 때 snowpea가 호스트 키의 지문을 보여 주고 확인을 묻습니다. 확인하기 전에는 아무것도 신뢰하지 않습니다. 나중에 호스트 키가 바뀌면 거절합니다. 원격에 snowpea가 없으면 설치를 묻습니다. 설치는 이전과 같이 이 컴퓨터와 같은 버전으로 원격에 설치하며 확인하기 전에는 실행하지 않습니다.
+
+## 연결과 해제
+
+머신은 snowpea가 SSH 연결을 유지하는 동안 연결된 상태입니다. 사이드바에서 연결하거나 다음 명령을 씁니다.
+
+```bash
+snowpea machine list                 # 머신 목록과 상태
+snowpea machine connect <id>         # SSH와 터널 열기
+snowpea machine disconnect <id>      # 터널 닫기
+snowpea machine remove <id>          # 머신과 저장된 키를 지우기
+```
+
+`snowpea machine add`는 등록만 하고 연결하지 않습니다. id는 `machine list`에서 확인합니다.
+
+## 머신 사용
+
+- **세션.** 머신의 프로젝트를 열고 세션을 고릅니다. 원격 머신의 세션은 그 컴퓨터에서 도는 일반 snowpea 세션입니다. 파일, 도구, 메모리, 승인이 모두 그 컴퓨터에 있습니다. 세션이 어떤 화면으로 열리는지는 아래 [세션이 열리는 방식](#세션이-열리는-방식)을 보세요.
+- **터미널.** 머신의 터미널은 그 머신의 데몬이 제공하며 로컬 터미널과 같은 터미널 화면에 보입니다. 명령줄에서는 `snowpea term ls --machine <id>`로 목록을 보고 `--machine <id>`를 붙이거나 `<id>:<터미널>` 형식으로 `read`, `send`, `attach`를 씁니다. 예: `snowpea term attach <id>:<터미널>`. 자세한 내용은 [터미널 세션](terminals.md#snowpea-term-명령)을 보세요.
+- **외부 세션**(Claude Code, Codex, agy, Cursor agent)은 로컬과 같이 머신에서도 터미널에서 열립니다. [외부 세션](external-sessions.md)을 보세요.
+- **자비스**는 원격 머신의 세션과 터미널을 로컬과 같은 스위치와 규칙으로 관리할 수 있습니다. [자비스 모드, 원격 머신](jarvis.md#원격-머신)을 보세요.
+
+## 세션이 열리는 방식
+
+이 컴퓨터에서 snowpea 세션은 **설정 → 터미널**의 `ui.sessionView`에 따라 **채팅** 또는 **터미널**로 열립니다(기본값 `chat`).
+
+원격 머신에서는 다음과 같습니다.
+
+- 기본값은 `ui.remoteSessionView`에서 옵니다(기본값 `chat`). 같은 화면, **설정 → 터미널**에 있습니다.
+- 머신마다 **Machines → Edit**에서 그 머신 행의 **sessionView**로 따로 정할 수 있습니다.
+- 원격 머신에서 snowpea 세션을 처음 열 때 적용되는 설정이 없으면, snowpea가 채팅으로 열지 터미널로 열지 묻고 그 머신에 대한 답을 기억합니다.
+
+원격 채팅은 snowpea 세션에만 쓸 수 있습니다. 대화에 머신 이름 배지가 붙고 그 세션의 각 이벤트에는 머신 id가 함께 옵니다. 외부 세션은 이 컴퓨터에서든 머신에서든 항상 터미널로 열립니다.
+
+## 보안
+
+- **강한 선택은 이 컴퓨터의 사용자만 합니다.** 프로젝트 신뢰, 제한 없이 실행(unrestricted), 위험한 권한 옵션은 머신에서도 이 컴퓨터 앞의 사용자만 정합니다. 그 선택은 이 컴퓨터의 원장에 기록됩니다.
+- **원격 웹 로그인은 기본적으로 막혀 있습니다.** [snowpea 웹](web.md)에서 원격으로 로그인한 사용자는 `web.remote.machines`를 켜야만 연결된 머신을 쓸 수 있습니다. 기본은 꺼짐이며 이 컴퓨터에서만 바꿀 수 있습니다.
+- **브라우저와 커넥터는 머신을 쓸 수 없습니다.** 브라우저 세션이든 커넥터든 머신을 추가하거나, 연결하거나, 쓸 수 없습니다.
+- **키는 이 컴퓨터에 남습니다.** 붙여 넣은 키는 이 컴퓨터에 모드 0600으로 저장되며 웹 페이지나 머신으로 보내지 않습니다.
+- **호스트 키는 한 번만 확인합니다.** 호스트 키가 바뀌면 머신을 지우고 다시 추가할 때까지 거절합니다.
+- **자비스**는 원격 세션이나 터미널을 그 항목의 자비스 스위치가 켜져 있을 때만 관리합니다. 원격 머신에서는 신뢰, 제한 없이 실행, 위험한 옵션을 쓰지 않습니다. 원격 머신의 권한 확인은 자비스가 답하지 않고 사용자에게 갑니다.
+
+SSH 연결에는 이 컴퓨터의 `ssh`를 이 컴퓨터의 키, ssh-agent, `~/.ssh/config`와 함께 씁니다. 암호나 키 암호는 이전처럼 이 컴퓨터에서 한 번 묻습니다.
 
 ## 설정
 
-- `web.remote.machines` — 켜면 원격 웹 로그인도 이 컴퓨터에서 이미 연결된 머신을 쓸 수 있습니다(기본 꺼짐).
-- 머신마다 **Jarvis allowed** 스위치가 있습니다(기본 꺼짐). Jarvis가 원격 터미널을 만들거나 입력할 때 필요합니다.
+| 설정 | 기본값 | 역할 |
+|---|---|---|
+| `web.remote.machines` | `false` | 원격 웹 로그인이 이 컴퓨터에 연결된 머신을 쓸 수 있게 합니다. 이 컴퓨터에서만 바꿉니다. |
+| `ui.sessionView` | `chat` | 이 컴퓨터의 snowpea 세션을 여는 방식: `chat` 또는 `terminal`. |
+| `ui.remoteSessionView` | `chat` | 원격 머신의 snowpea 세션을 기본으로 여는 방식: `chat` 또는 `terminal`. |
 
-## CLI
+## 제한
 
-```bash
-snowpea machine list
-snowpea machine add user@host
-snowpea machine connect <id>
-snowpea machine disconnect <id>
-snowpea machine remove <id>
-```
-
-창 전체가 원격으로 바뀌는 모드(`snowpea --remote`)는 [remote](remote.md)를 보세요. 동작은 그대로입니다.
-
-## 원격 머신에서 snowpea 세션 (1.77.0)
-
-이 컴퓨터에서는 **설정 → 터미널**의 `ui.sessionView`에 따라 snowpea 세션이 **채팅** 또는 **터미널**로 열립니다. 연결된 원격 머신에서는 기본값이 `ui.remoteSessionView`이고, **머신 → 편집**의 **sessionView**로 머신마다 덮어쓸 수 있습니다.
-
-채팅은 머신 배지가 있는 일반 대화 화면이며, 원격 `session.event`마다 `machine`이 붙습니다. 터미널은 그 머신의 `snowpea` 프로필 터미널을 만들거나 재사용합니다.
-
-원격 채팅은 로컬과 같은 프록시 메서드(`session.resume`, `session.prompt`, `session.interrupt` 등)를 씁니다. Jarvis가 원격을 다룰 때는 [Jarvis 원격](jarvis.md#원격-머신)의 별도 경로를 씁니다.
+- 베타입니다. 원격 컴퓨터에는 호환되는 프로토콜 버전의 snowpea가 있어야 합니다. 메이저 버전이 다르면 업데이트하라는 안내와 함께 거절합니다.
+- 원격 채팅은 snowpea 세션용입니다. 외부 세션은 터미널에서 돕니다.

@@ -77,6 +77,7 @@ Every connection through the second listener is a **remote sign-in**, with the l
 Some things a remote sign-in cannot do through snowpea's own screens; the page says the change needs a local connection. They are kept on this computer so that a mistake, or a session someone borrowed for a minute, cannot change them by a click. This is not a wall against a person who holds the link — that person can run commands — so do not count on it as one.
 
 - **Remote access itself**: the listener, its address, the password, the link, `maxMode`. Also the daemon's settings, updates, restarts and extensions.
+- **Remote machines**: a remote sign-in can use connected [machines](machines.md) only when `web.remote.machines` is on. It is off by default, and only a local connection can turn it on.
 - **Jarvis**: turning Jarvis mode on, giving it any authority (a delegation grant — a remote sign-in can still take a grant back, take a session over and hand it back; with **Allow delegation from a remote web login** turned on here it can give a limited grant, see [Delegation from a remote sign-in](#delegation-from-a-remote-sign-in)), an external CLI's path, opening an external session unrestricted. The **briefing** — a recurring Jarvis task that carries your words — a remote sign-in can only turn off, also by asking Jarvis to change it.
 - **The security lists** (blocked commands, protected paths) and **project trust**.
 - **Allowlist rules.** A remote sign-in cannot add a rule, and when it answers an approval with "always" or "for this project" the answer holds until the session ends and no rule is stored.
@@ -185,7 +186,7 @@ The layout follows the DeepSeek Harness web client: three columns, with the conv
 
 | Column | What is in it |
 |---|---|
-| Left — sidebar | **New Session**, Plugins, Automation tasks, More (the other screens: skills, schedule, settings…), then **Workspaces**: one group per project folder with its conversations, pinned ones first. A dot on a row says a turn is running, an approval is waiting, or there is something unread. The row menu pins, renames, forks, copies the id or archives. |
+| Left — sidebar | **New Session**, Plugins, Automation tasks, More (the other screens: skills, schedule, settings…), then **Workspaces**: one group per project folder with its conversations, pinned ones first. Below them, **Machines**: **This computer** and each [remote machine](machines.md) you added, each collapsible, with its projects. A dot on a row says a turn is running, an approval is waiting, or there is something unread. The row menu pins, renames, forks, copies the id or archives. |
 | Middle — conversation | A header with the conversation's title, the parents it was delegated or forked from, and two tabs: **Chat** (the messages, tool cards and composer) and **Trajectory** (see below). |
 | Right — dock | Tabs that open next to the conversation: files, the workspace file tree, the plan, delegated work, changes and terminals (in snowpea web, the daemon's [terminal sessions](terminals.md); the desktop app also has its own shells). Panes split and tabs move between them; the layout is kept per conversation in this browser. |
 
@@ -257,4 +258,4 @@ If the build is missing, `snowpea web` says so and the address answers `404`.
 
 - [Terminal UI](tui.md) — the same agent in the terminal
 - [Protocol](protocol.md) — the RPCs the page uses (`workspace.*`, `session.trajectory`, `session.fork`, `session.lineage`, `fs.*`)
-- [Remote sessions](remote.md) — running the daemon on another machine
+- [Remote machines (beta)](machines.md) — snowpea sessions and terminals on other computers, from the sidebar

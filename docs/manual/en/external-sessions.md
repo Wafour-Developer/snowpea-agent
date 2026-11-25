@@ -1,6 +1,6 @@
 # External sessions (beta)
 
-External sessions are sessions of other agent CLIs that run on your computer: Claude Code, Codex, Antigravity (agy) and Cursor agent. snowpea lists them by the folder they work in. You can open one in snowpea's chat view, in the desktop app, the web app or the terminal UI, and continue it there. Jarvis can read them and, under the rules in [Jarvis mode](jarvis.md), instruct them.
+External sessions are sessions of other agent CLIs that run on your computer: Claude Code, Codex, Antigravity (agy) and Cursor agent. snowpea lists them by the folder they work in. You open one in a snowpea terminal, in the desktop app, the web app or the terminal UI, and continue it there. Jarvis can read them and, under the rules in [Jarvis mode](jarvis.md), instruct them. External sessions on a [remote machine](machines.md) work the same way.
 
 This feature is in beta. The CLIs' session records are not a published format, so a new CLI version can change them.
 
@@ -11,8 +11,8 @@ Related: [Jarvis mode (beta)](jarvis.md) · [Security lists](security.md) · [Ag
 ## What it is
 
 - snowpea finds the four CLIs on the machine that runs the daemon. A CLI that is not installed shows as "not installed". You can turn each CLI off in settings.
-- Sessions are listed with their project, beside snowpea's own sessions. Use **Load external session…** in the project's **+** menu to see sessions from another folder or from every project.
-- A session opens in snowpea's chat view. It looks like a snowpea session: messages, tool calls and approvals appear in one stream.
+- Sessions are listed with their project, beside snowpea's own sessions.
+- A session always opens in a snowpea terminal pane: the CLI itself runs there, and snowpea shows its status as a dot. Approvals and prompts are answered by the CLI in that pane, and [snowpea's own approval rules](#approvals) apply to what snowpea can see.
 
 ## The three kinds of session
 
@@ -21,20 +21,20 @@ Each external session has a **host**. The host says where its process runs, and 
 | Host | What it means | What you can do |
 |---|---|---|
 | **Run by snowpea** | snowpea runs the session's process and handles its approvals | Send, interrupt, change mode, stop. Approvals appear in snowpea. |
-| **In another terminal** | The CLI runs outside snowpea, or snowpea is following that process after a resume conflict. | In the chat view: view only until that process exits. In a snowpea terminal pane: see [Resume in a snowpea terminal](#resume-in-a-snowpea-terminal). |
-| **Not running** | No process is running. snowpea shows the history. | Read the history. Send a message or press **Continue here** to start it under snowpea. |
+| **In another terminal** | The CLI runs outside snowpea, or snowpea is following that process after a resume conflict. | snowpea follows it read-only until that process exits. See [Resume in a snowpea terminal](#resume-in-a-snowpea-terminal). |
+| **Not running** | No process is running. snowpea shows the history. | Read the history. Open it to resume it in a snowpea terminal; a message you send there continues it. |
 
-**Terminal sessions (beta).** By default an external session opens as a real terminal pane: the CLI runs in it, and snowpea shows its status as a dot. Set `jarvis.external.view` to `chat` to keep the chat view. See [Terminal sessions (beta)](terminals.md) for the view, the permission options and what Jarvis does with these terminals, and [CLI hook integrations (beta)](integrations.md) for the hooks that report a session's state.
+**Terminal sessions (beta).** The CLI runs in a real terminal pane, and snowpea shows its status as a dot. See [Terminal sessions (beta)](terminals.md) for the view, the permission options and what Jarvis does with these terminals, and [CLI hook integrations (beta)](integrations.md) for the hooks that report a session's state.
 
 ## Create, load, send, stop
 
-In the desktop app and snowpea web, a project in the sidebar shows one list of its sessions: snowpea's own and the external ones together, each row with the icon of the agent that runs it. The project's **+** menu has **New Session**, **New external session…** and **Load external session…**.
+In the desktop app and snowpea web, a project in the sidebar shows one list of its sessions: snowpea's own and the external ones together, each row with the icon of the agent that runs it. The project's **+** menu has **New Session** and **New external session…**. The second opens a dialog with **Start new session** first, then the project's sessions, newest first; choosing a session resumes it in a terminal.
 
 | Task | In the app | In the terminal UI |
 |---|---|---|
-| Start a new session | Project **+** → **New external session…**: pick the CLI, an optional model (the default if empty), and the folder | `/external new` |
-| Open a session from this folder | Pick its row in the project's session list (the agent icon shows which CLI) | `/external` (the picker) |
-| Open a session by its handle | Project **+** → **Load external session…**, then search or filter by CLI and project | `/external open <cli>:<id>`, where `<cli>` is `claude`, `codex`, `agy` or `cursor` |
+| Start a new session | Project **+** → **New external session…** → **Start new session**, then pick the permission option | `/external new` |
+| Open a session from this folder | Project **+** → **New external session…**, then choose its row (the agent icon shows which CLI) | `/external` (the picker) |
+| Open a session by its handle | Choose it in the project's session list | `/external open <cli>:<id>`, where `<cli>` is `claude`, `codex`, `agy` or `cursor` |
 | Send a message | Type in the composer and send | Type in the prompt |
 | Interrupt the running turn | **Stop** | **Esc** |
 | Leave the screen and keep it running | Close the tab or panel | `/external close` |
@@ -107,11 +107,10 @@ Raising a session's mode is always yours. Jarvis can start a session in a mode t
 
 ## Resume in a snowpea terminal
 
-By default (`jarvis.external.view` is `terminal`), opening or continuing an external session starts the CLI in a snowpea terminal pane with that CLI's own resume command. The session id comes from the [hook integration](integrations.md) (run `snowpea integration install` first if resume fails).
+Opening or continuing an external session starts the CLI in a snowpea terminal pane with that CLI's own resume command, for every CLI and every operating system. The session id comes from the [hook integration](integrations.md) (run `snowpea integration install` first if resume fails).
 
 - **snowpea always resumes in its own pane.** snowpea does not attach to your own terminal or type into a process you started elsewhere. Resume always goes through a pane the daemon holds.
-- **Already running elsewhere.** If the same session is live in another terminal, snowpea still opens a pane and runs resume. The CLI decides whether a second process is allowed. When it refuses (for example Codex's "active writer" or Claude Code's live session), snowpea follows the other process read-only and does not start a competing CLI. End that session, then choose **Resume in a terminal** again.
-- **Chat view.** With `jarvis.external.view` set to `chat`, a session something else holds stays view only in the chat until that process exits; **Continue here** then starts it under snowpea over the structured transport.
+- **Already running elsewhere.** If the same session is live in another terminal, snowpea still opens a pane and runs resume. The CLI decides whether a second process is allowed. When it refuses (for example Codex's "active writer" or Claude Code's live session), snowpea follows the other process read-only and does not start a competing CLI. End that session in its own terminal, then open it again from snowpea.
 
 See [Terminal sessions (beta)](terminals.md) for permission options, status dots and Jarvis rules in these panes.
 
@@ -172,7 +171,7 @@ When you type into a session that Jarvis manages, Jarvis pauses there. See [Step
 ## Notes for each CLI
 
 - **Claude Code.** Its history comes from its own project records. Its approvals stream into snowpea when the session runs under the structured transport; in a terminal pane, prompts stay in the pane.
-- **Codex.** All Codex sessions share one `codex app-server` process that snowpea runs. After its terminal closes, Codex takes about a minute to release the session (measured at 57 seconds), so **Continue here** may wait for a short time. Codex is the only CLI that takes text into a running turn (**Add to turn**).
+- **Codex.** All Codex sessions share one `codex app-server` process that snowpea runs. After its terminal closes, Codex takes about a minute to release the session (measured at 57 seconds), so opening that session again may wait for a short time. Codex is the only CLI that takes text into a running turn (**Add to turn**).
 - **agy.** Its approvals follow agy's own setting. If that setting is to run without asking, agy may never ask, and snowpea cannot change it for one session; its modes then all show as never asking. agy has no read-only mode: its plan mode writes a plan.
 - **Cursor agent.** It does not send approval requests to snowpea. It starts in Ask mode, which is read-only. Agent mode lets it edit and run sandboxed shell commands without a prompt. Run Everything runs it with `--yolo`. Cursor agent can leave helper processes running. snowpea cleans them up when it stops.
 - **Windows.** snowpea starts external CLI processes without a console window and ends a CLI's whole process tree together when it stops one. Cleaning up leftover CLI processes after an unclean daemon exit needs the process start time, which Windows does not give, so such leftovers are not cleaned up automatically there.

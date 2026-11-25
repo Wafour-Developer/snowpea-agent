@@ -222,6 +222,19 @@ snowpea service uninstall
 
 `team status` reporta el estado y el contador de reintentos de cada tarea de un team en ejecución. `team list`, `create`, `use` y `delete` gestionan en cambio las plantillas reutilizables de agentes: los mismos teams de proyecto que `/team create` escribe en `<workdir>/.snowpea/settings.json`, listados junto con los globales y con el team activo marcado. `team delete` elimina solo teams de proyecto. `service` registra el daemon para que arranque al iniciar sesión: una unidad de usuario systemd en Linux, un agente launchd en macOS, una tarea programada en Windows. Está desactivado por defecto, y solo lo necesitas si quieres que las programaciones y los gateways sobrevivan a un reinicio sin que nadie inicie sesión en una terminal.
 
+### Máquinas y terminales
+
+```bash
+snowpea machine list
+snowpea machine add user@host --label build
+snowpea machine connect <id>
+snowpea machine disconnect <id>
+snowpea machine remove <id>
+snowpea term ls --machine <id>
+```
+
+`machine` gestiona las [máquinas remotas](../en/machines.md) por SSH. `add` solo registra una máquina; `connect` abre la conexión. `--key PATH` indica un archivo de clave privada. `term` con `--machine <id>`, o `MACHINE:ID` en lugar de un id, llega a un terminal de una máquina remota ([sesiones de terminal](terminals.md#el-comando-snowpea-term)). `snowpea --remote` y `snowpea remote up` se eliminaron en la 1.78.0.
+
 ### Opciones globales
 
 | Opción | Significado |

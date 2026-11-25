@@ -6,7 +6,7 @@
 
 其他语言: [English](../en/terminals.md) · [한국어](../ko/terminals.md) · [全部页面](../README.md)
 
-相关: [External sessions（beta）](../en/external-sessions.md) · [Jarvis mode（beta）](../en/jarvis.md) · [CLI 钩子集成（beta）](integrations.md) · [snowpea web](web.md) · [Terminal UI](tui.md)
+相关: [External sessions（beta）](../en/external-sessions.md) · [Jarvis mode（beta）](../en/jarvis.md) · [远程机器（beta）](../en/machines.md) · [CLI 钩子集成（beta）](integrations.md) · [snowpea web](web.md) · [Terminal UI](tui.md)
 
 ## 什么是终端会话
 
@@ -15,31 +15,32 @@
 - 同时运行的终端最多 `terminals.max` 个（默认 16，可设为 1 到 64）。
 - 配置档（profile）：`shell`、`snowpea`、`claude`、`codex`、`agy`、`cursor`。
 
-## 把外部 CLI 会话放进终端
+## 外部 CLI 会话作为终端
 
-当 `jarvis.external.view` 为 `terminal`（默认）时，外部会话会以终端方式打开：CLI 在一个窗格中运行，取代聊天视图。若想保留之前的结构化聊天视图，把它设为 `chat`。未指定视图的客户端仍使用聊天视图。
+外部会话总是以终端方式打开，无论在本机还是在[远程机器](../en/machines.md)上：CLI 在一个窗格中运行。外部会话没有聊天视图。这适用于所有 CLI 和所有操作系统。
 
 - 新会话会在你选择的项目文件夹中启动 CLI。
-- 已有会话使用 CLI 自身的恢复命令继续（`claude --resume <id>`、`codex resume <id>`，agy 与 Cursor 也有对应命令）。会话 id 来自钩子集成，所以如果想从终端恢复，请先运行 [`snowpea integration install`](integrations.md)。
-- 已在另一个终端中运行的会话：snowpea 仍会在其面板中运行 CLI 的恢复命令。若 CLI 报告另一进程已占用该会话，snowpea 会只读跟踪该进程直至其退出；否则会话在面板中继续。
+- 打开已有会话时，会用 CLI 自身的恢复命令在 snowpea 终端中继续（`claude --resume <id>`、`codex resume <id>`，以及 agy 和 Cursor 的对应命令）。会话 id 来自钩子集成，所以如果希望恢复功能正常工作，请先运行 [`snowpea integration install`](integrations.md)。
+- 即使会话正在别处运行，也会在它自己的窗格中恢复，其余由 CLI 处理。
 
-在应用中，项目的 **+** 菜单 → **New external session…** 会询问 **Open as**：**Terminal** 或 **Chat**（根据 `jarvis.external.view` 预先选中）。选择终端时，列出的是该 CLI 的权限选项（[见下](#权限选项)），而不是聊天模式。**Load external session…** 中，当前没有任何程序在运行的每个会话上都有 **Resume in a terminal**。
+在应用中，项目的 **+** 菜单 → **New external session…** 会打开一个对话框，首先列出 **Start new session**，然后是该项目的会话，按最新排序。选择某个会话即可在终端中恢复它。开始前请先选择权限选项（[见下](#权限选项)）：危险选项会显示行内警告，没有单独的确认对话框。
 
-CLI 在你的交互式 shell 中运行，因此 PATH 和 nvm 等设置照常生效。CLI 退出后，除非关闭了 `terminals.keepShell`，窗格会回到 shell。
+CLI 在你自己的交互式 shell 中运行，因此 PATH 和 nvm 等设置仍然生效。CLI 退出后，窗格会回到 shell，除非关闭了 `terminals.keepShell`。
 
 ## 在终端中使用 snowpea 会话
 
-每个 snowpea 会话都可以两种方式查看：聊天，或者在连接到同一会话的终端里运行 snowpea CLI。两种视图都是同一会话的客户端，可以同时打开。在应用中，对话标题栏里 **Chat** 和 **Trajectory** 旁边有一个 **Terminal** 标签页（仅在守护进程支持时出现）。该标签页会复用该会话正在运行的终端，没有则启动一个。
+每个 snowpea 会话都可以两种方式显示：作为聊天，或作为在终端中运行、连接到同一会话的 snowpea CLI。两种视图都是同一会话的客户端，可以同时打开。在应用中，对话标题栏里 **Chat** 和 **Trajectory** 旁边有 **Terminal** 标签页（仅在守护进程支持时出现）。该标签页会复用会话正在运行的终端，若没有则启动一个。
 
-- 默认视图由 `ui.sessionView` 决定：`chat`（默认）或 `terminal`。它保存在这个守护进程的设置中，因此连接到它的每个应用窗口和 web 页面都以同样的方式打开会话。在 **Settings → Terminal** 中更改。
+- 在本机，默认视图由 `ui.sessionView` 决定：`chat`（默认）或 `terminal`。它保存在本守护进程的设置中，因此连接到它的每个应用窗口和 web 页面都以相同方式打开会话。在 **Settings → Terminal** 中更改。
+- 在远程机器上，默认值由 `ui.remoteSessionView` 决定（同样默认为 `chat`），机器可以覆盖这个设置。第一次在没有设置的远程机器上打开 snowpea 会话时，snowpea 会询问选择聊天还是终端，并记住你的答案。参见[远程机器的打开方式](../en/machines.md#how-a-session-opens)。远程聊天仅适用于 snowpea 会话。
 - 若要从 shell 连接到本地守护进程中已有的会话，运行 `snowpea --session <id>`。TUI 会恢复该会话，而不是新建一个。
 
 ## 设置
 
 | 键 | 默认值 | 作用 |
 |---|---|---|
-| `ui.sessionView` | `chat` | snowpea 会话的默认视图 |
-| `jarvis.external.view` | `terminal` | 外部 CLI 会话的打开方式：`terminal` 或 `chat` |
+| `ui.sessionView` | `chat` | 本机上 snowpea 会话的默认视图 |
+| `ui.remoteSessionView` | `chat` | 远程机器上 snowpea 会话的默认视图 |
 | `terminals.max` | `16` | 同时运行的终端上限（1 到 64） |
 | `terminals.keepShell` | `true` | CLI 退出后回到 shell，而不是关闭窗格 |
 | `terminals.headlessCols` / `terminals.headlessRows` | `160` / `48` | 没有任何视图连接时终端使用的尺寸 |
@@ -91,9 +92,9 @@ snowpea 按以下优先级（从高到低）决定状态来源：
 
 危险选项的规则如下：
 
-- 在所有出现的地方都显示红色标记，应用会在启动前要求你确认风险。
-- Jarvis 或任何工具请求时，无论设置如何都会被拒绝。
-- `web.remote.maxMode` 低于 `auto` 时被拒绝。
+- 在所有出现的地方都显示红色标记，并在启动对话框中显示行内警告。没有单独的确认对话框，所以选择之前请先阅读警告；
+- Jarvis 或任何工具请求时，无论设置如何都会被拒绝；
+- `web.remote.maxMode` 低于 `auto` 时被拒绝；
 - 通过 Web 隧道连接时，若未解锁终端，同样被拒绝（[snowpea web](web.md#用隧道获得公网地址)）。
 
 Jarvis 不会回答危险选项启动的终端中的权限确认。Accept edits、Don't ask 等非危险模式同样只能由本地应用中的用户自己选择，Jarvis 不会替你选择。Jarvis 通过 `terminal_create` 启动的 CLI 终端，始终使用 CLI 的默认权限。
@@ -125,6 +126,8 @@ snowpea term send <id> "运行测试"        # 输入文字并按 Enter
 snowpea term send <id> --no-submit "草稿"  # 只输入，不按 Enter
 snowpea term attach <id>               # 在当前窗口中接管该终端
 snowpea term attach <id> --observe     # 仅观看：从不输入，从不调整尺寸
+snowpea term ls --machine <machine-id> # 远程机器上的终端
+snowpea term read <machine-id>:<id>    # 同上，使用 MACHINE:ID 代替 --machine
 ```
 
 - `attach` 会把你的终端切换为 raw 模式并显示会话。按 **Ctrl+\\** 可以分离，会话继续在后台运行。`attach` 需要交互式终端，目前不支持 Windows；Windows 上请使用 `read` 和 `send`，或在应用中打开该终端。
@@ -133,7 +136,7 @@ snowpea term attach <id> --observe     # 仅观看：从不输入，从不调整
 
 ## Jarvis 与终端（beta）
 
-开启 Jarvis 模式后，Jarvis 能看到其可访问项目中的终端，并拥有以下工具：
+开启 Jarvis 模式后，Jarvis 只能看到其 Jarvis 开关已打开的终端。开关关闭的终端对 Jarvis 不可见。远程机器上的终端遵循同样的规则（[见远程机器中的 Jarvis](../en/jarvis.md#remote-machines)）。Jarvis 拥有以下工具：
 
 | 工具 | 作用 |
 |---|---|
@@ -150,6 +153,8 @@ snowpea term attach <id> --observe     # 仅观看：从不输入，从不调整
 - Jarvis 只向 CLI 终端输入。它从不向普通 shell 输入，从不使用 `force`，也从不向以危险选项启动的终端输入。
 - Jarvis 只为你的请求或你委派的工作而输入。每一次读取和每一条指令都会记录在访问日志（`jarvis.access`）和决策账本（ledger）中。
 - `terminal_create` 从不启用危险选项，并会在终端上标注为由 Jarvis 启动。
+- Jarvis 无法打开终端的 Jarvis 开关。Jarvis 创建的终端会以开关打开的状态启动；其他终端默认关闭，直到你打开。
+- 当你向 Jarvis 管理的终端输入时，Jarvis 会退让 `jarvis.quietMinutes`（默认 10 分钟），或直到你把它交还。你的按键会计入，Jarvis 发送的按键不会。
 
 以下情况会唤醒 Jarvis：
 
@@ -157,4 +162,4 @@ snowpea term attach <id> --observe     # 仅观看：从不输入，从不调整
 - 其他终端进入 30 秒的摘要（digest）；
 - 由 Jarvis 启动的终端变为阻塞、出错或退出时，Jarvis 会收到一条便笺，内含该终端最后 20 行。便笺是给 Jarvis 的事件，不会被输入到终端中。
 
-关于终端内的权限确认：只有当以下条件全部成立时，Jarvis 才会回答权限确认：终端已完全委派给 Jarvis 且未被你占用；终端不是危险终端；屏幕规则能读出该提示所询问的命令；委派引擎将该命令归类为 `safe` 或 `risky`。归类为 `guarded` 或 `never` 的命令，以及其他所有情况，都由你来回答。Jarvis 的每一次回答和每一次拒绝都会写入决策账本。委派级别的说明见 [Jarvis 模式](../en/jarvis.md#delegation)。
+关于终端内的权限确认：只有当以下条件全部成立时，Jarvis 才会回答：终端在本机而非远程机器上；终端已完全委派给 Jarvis 且未被你占用；终端不是危险终端；屏幕规则能读出该提示所询问的命令；委派引擎将该命令归类为 `safe` 或 `risky`。远程机器上的权限确认始终交给你。归类为 `guarded` 或 `never` 的命令以及其他所有情况，都由你来回答。Jarvis 的每一次回答和每一次拒绝都会写入决策账本。委派级别的说明见 [Jarvis 模式](../en/jarvis.md#delegation)。

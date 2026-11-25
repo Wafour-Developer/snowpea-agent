@@ -338,6 +338,8 @@ snowpea --inline
 
 snowpea 会话也可以在终端中显示：连接到同一会话的 snowpea CLI，可以与聊天并排显示，也可以代替聊天。`snowpea --session <id>` 会把本 TUI 连接到本地守护进程中已有的会话，恢复该会话而不是新建。默认视图设置、状态圆点和 `snowpea term` 请参阅 [终端会话（beta）](terminals.md)。
 
+终端 UI 连接的是本机上的守护进程（使用 `--docker` 时则是[沙盒](../en/sandbox.md)）。`snowpea --remote` 已在 1.78.0 中移除。要使用另一台电脑，请用 `snowpea machine add` 把它添加为[远程机器](../en/machines.md)，或在桌面应用或 snowpea web 的侧边栏中添加。之后它的会话和终端会显示在那里，而不是这里。
+
 ## 按键
 
 | 按键 | 作用 |

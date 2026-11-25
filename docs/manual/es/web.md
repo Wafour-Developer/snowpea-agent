@@ -96,7 +96,7 @@ El diseño sigue el cliente web de DeepSeek Harness: tres columnas, con la conve
 
 | Columna | Qué contiene |
 |---|---|
-| Izquierda — barra lateral | **New Session** (nueva sesión), Plugins, Automation tasks (tareas de automatización), More (las demás pantallas: skills, programación, ajustes…), y luego **Workspaces** (espacios de trabajo): un grupo por carpeta de proyecto con sus conversaciones, las ancladas primero. Un punto en una fila indica que un turno se está ejecutando, que hay una aprobación esperando o que hay algo sin leer. El menú de la fila ancla, renombra, bifurca, copia el id o archiva. |
+| Izquierda — barra lateral | **New Session** (nueva sesión), Plugins, Automation tasks (tareas de automatización), More (las demás pantallas: skills, programación, ajustes…), y luego **Workspaces** (espacios de trabajo): un grupo por carpeta de proyecto con sus conversaciones, las ancladas primero. Debajo, **Machines** (máquinas): **This computer** y cada [máquina remota](../en/machines.md) que añadiste, cada una plegable y con sus proyectos. Un punto en una fila indica que un turno se está ejecutando, que hay una aprobación esperando o que hay algo sin leer. El menú de la fila ancla, renombra, bifurca, copia el id o archiva. |
 | Centro — conversación | Una cabecera con el título de la conversación, los padres de los que se delegó o bifurcó, y dos pestañas: **Chat** (los mensajes, las tarjetas de herramientas y el campo de entrada) y **Trajectory** (trayectoria; ver abajo). |
 | Derecha — dock | Pestañas que se abren junto a la conversación: archivos, el árbol de archivos del espacio de trabajo, el plan, el trabajo delegado, los cambios y terminales (en snowpea web, las [sesiones de terminal](terminals.md) del daemon; la aplicación de escritorio también tiene sus propias shells). Los paneles se dividen y las pestañas se mueven entre ellos; el diseño se guarda por conversación en este navegador. |
 
@@ -156,4 +156,4 @@ Si falta la build, `snowpea web` lo dice y la dirección responde `404`.
 
 - [Terminal UI](tui.md) — el mismo agente en la terminal
 - [Protocol](protocol.md) — los RPC que usa la página (`workspace.*`, `session.trajectory`, `session.fork`, `session.lineage`, `fs.*`)
-- [Sesiones remotas](../en/remote.md) — ejecutar el daemon en otra máquina
+- [Máquinas remotas (beta)](../en/machines.md) — sesiones y terminales de snowpea en otros equipos, desde la barra lateral

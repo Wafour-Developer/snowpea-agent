@@ -222,6 +222,19 @@ snowpea service uninstall
 
 `team status` 会报告运行中的 team 里每个任务的状态和重试次数。`team list`、`create`、`use` 和 `delete` 管的则是可复用的 agent 名单：就是 `/team create` 写进 `<workdir>/.snowpea/settings.json` 的那些项目 team，它们会和全局 team 一起列出，并标出当前激活的那一个。`team delete` 只删除项目 team。`service` 会把守护进程注册为开机自启——在 Linux 上是 systemd 用户单元，在 macOS 上是 launchd agent，在 Windows 上是计划任务。它默认是关闭的，只有当你希望调度和 gateway 在无人登录终端的情况下也能挺过重启时才需要它。
 
+### 机器与终端
+
+```bash
+snowpea machine list
+snowpea machine add user@host --label build
+snowpea machine connect <id>
+snowpea machine disconnect <id>
+snowpea machine remove <id>
+snowpea term ls --machine <id>
+```
+
+`machine` 管理通过 SSH 连接的[远程机器](../en/machines.md)。`add` 只注册机器，`connect` 才会打开连接。`--key PATH` 指定私钥文件，`--json` 输出原始结果。`term` 用于列出、读取、输入和连接终端（[终端会话](terminals.md#snowpea-term-命令)）；`--machine <id>`，或在 id 的位置写 `MACHINE:ID`，即可访问远程机器上的终端。`snowpea --remote` 和 `snowpea remote up` 已在 1.78.0 中移除。
+
 ### 全局选项
 
 | Option | Meaning |

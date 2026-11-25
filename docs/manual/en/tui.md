@@ -483,6 +483,8 @@ The mouse wheel scrolls the transcript in full screen because the TUI asks the t
 
 A snowpea session can also be shown in a terminal: the snowpea CLI attached to the same session, next to or instead of the chat. `snowpea --session <id>` opens this TUI on a session that already exists in the local daemon, resuming it instead of creating one. Read [Terminal sessions (beta)](terminals.md) for the default view setting, the status dots and `snowpea term`.
 
+The terminal UI runs against the daemon on this computer (or a [sandbox](sandbox.md) with `--docker`). `snowpea --remote` was removed in 1.78.0. To use another computer, add it as a [remote machine](machines.md) with `snowpea machine add` or from the sidebar of the desktop app or snowpea web; its sessions and terminals are then shown there, not here.
+
 ## Keys
 
 | Key | What it does |

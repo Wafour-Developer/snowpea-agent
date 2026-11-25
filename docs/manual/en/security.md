@@ -28,7 +28,7 @@ A blocked call does not run on its own, but it is never out of your reach (0.2.9
 - **snowpea IDE and snowpea web**: Settings → Security.
 - **Terminal UI**: the security screen (`/security`).
 - **The Snowpea browser's Settings page** (version 0.3.0 or later, on this computer): since protocol 1.58.0 it can change the master switch (`security.enabled`), `unknownCode` and both lists, and only from that page. It also shows what each project adds, read-only.
-- You change them on a local connection (IDE, TUI, CLI, the local web page) or on that browser page. A remote web login (the page opened through `snowpea remote`) and the remote connector can read the lists but not change them.
+- You change them on a local connection (IDE, TUI, CLI, the local web page) or on that browser page. A remote web login (the page opened through [snowpea web](web.md) from another machine) and the remote connector can read the lists but not change them.
 
 Behind the screens these are two settings in `$SNOWPEA_HOME/settings.json`:
 
@@ -293,4 +293,4 @@ The lists cover what goes through snowpea: its own tools, approvals, Jarvis, sch
 
 - what a program works out while it runs: a path or a command built from a download, from a file's content, from arithmetic on text. snowpea asks when it can see that it can't tell; it cannot always see that;
 - libraries that write where they are told (`numpy.save`, `DataFrame.to_csv`), compiled programs, and scripts in languages snowpea does not read (it asks about those only when the agent wrote them);
-- external CLI sessions in unrestricted mode, ones whose prompts are answered in their own terminal (tmux), or ones running in another terminal. The session list marks them; snowpea warns when such a session opens while lists are set.
+- external CLI sessions in unrestricted mode, ones whose prompts are answered in their own terminal, or ones running in another terminal. The session list marks them; snowpea warns when such a session opens while lists are set.

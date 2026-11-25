@@ -338,6 +338,19 @@ snowpea service uninstall
 
 `workers status` (and `team status`, its older spelling) reports each task's state and retry count for a running `/workers` batch. `team list`, `create`, `use` and `delete` manage the reusable agent rosters instead: the same project teams `/team create` writes to `<workdir>/.snowpea/settings.json`, listed together with the global ones and with the active team marked. `team delete` removes project teams only. `service` registers the daemon to start at login — a systemd user unit on Linux, a launchd agent on macOS, a scheduled task on Windows. It is off by default, and you only need it if you want schedules and gateways to survive a reboot without anyone logging into a terminal.
 
+### Machines and terminals
+
+```bash
+snowpea machine list
+snowpea machine add user@host --label build
+snowpea machine connect <id>
+snowpea machine disconnect <id>
+snowpea machine remove <id>
+snowpea term ls --machine <id>
+```
+
+`machine` manages the SSH [remote machines](machines.md). `add` only registers a machine; `connect` opens the connection. `--key PATH` names a private key file, and `--json` prints the raw result. `term` lists, reads, types into and attaches to terminals ([Terminal sessions](terminals.md#the-snowpea-term-command)); `--machine <id>`, or `MACHINE:ID` in place of an id, reaches a terminal on a remote machine. `snowpea --remote` and `snowpea remote up` were removed in 1.78.0.
+
 ### Global options
 
 | Option | Meaning |

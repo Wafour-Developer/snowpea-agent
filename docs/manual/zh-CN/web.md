@@ -96,7 +96,7 @@ snowpea web tunnel stop
 
 | 列 | 内容 |
 |---|---|
-| 左 — 侧边栏 | **New Session**(新会话)、Plugins(插件)、Automation tasks(自动化任务)、More(其他界面：skill、调度、设置……)，然后是 **Workspaces**(工作区)：每个项目文件夹一组，列出其中的对话，置顶的排在前面。行上的圆点表示有一个回合正在运行、有审批在等待，或有未读内容。行菜单可以置顶、重命名、分叉、复制 id 或归档。 |
+| 左 — 侧边栏 | **New Session**(新会话)、Plugins(插件)、Automation tasks(自动化任务)、More(其他界面：skill、调度、设置……)，然后是 **Workspaces**(工作区)：每个项目文件夹一组，列出其中的对话，置顶的排在前面。行上的圆点表示有一个回合正在运行、有审批在等待，或有未读内容。行菜单可以置顶、重命名、分叉、复制 id 或归档。其下方是 **Machines**：**This computer** 以及你添加的每台[远程机器](../en/machines.md)，各自可折叠，并列出其项目。 |
 | 中 — 对话 | 标题栏显示对话标题、它由哪些父对话委派或分叉而来，以及两个标签页：**Chat**(聊天：消息、工具卡片和输入框)和 **Trajectory**(轨迹，见下文)。 |
 | 右 — 停靠区 | 在对话旁边打开的标签页：文件、工作区文件树、计划、委派的工作、变更，以及终端（在 snowpea web 中是守护进程的[终端会话](terminals.md)；桌面应用还有自己的 shell）。窗格可以拆分，标签页可以在窗格之间移动；布局按对话保存在此浏览器中。 |
 
@@ -156,4 +156,4 @@ SNOWPEA_WEB_DIST=$PWD/out/web snowpea --home /tmp/snowpea-dev web
 
 - [Terminal UI](tui.md) — 终端中的同一个智能体
 - [Protocol](protocol.md) — 页面使用的 RPC(`workspace.*`、`session.trajectory`、`session.fork`、`session.lineage`、`fs.*`)
-- [远程会话](../en/remote.md) — 在另一台机器上运行守护进程
+- [远程机器（beta）](../en/machines.md) — 在侧边栏中添加其他电脑，查看其上的 snowpea 会话和终端

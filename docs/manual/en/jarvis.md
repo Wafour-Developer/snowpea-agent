@@ -54,10 +54,12 @@ How to switch:
 
 A remote web login can switch a session too. Jarvis, a session's own tools, and messenger or browser connections cannot.
 
+Terminals have the same switch, and so do the sessions and terminals of a [remote machine](#remote-machines). Jarvis manages a remote item only when its switch is on, the same as a local one.
+
 What turns a session on by itself:
 
 - **A session delegation.** When you confirm a delegation for one session ("hand it over"), the same confirmation shares that session. A project or "everything" delegation does **not** share sessions. It applies to the sessions you share.
-- **Jarvis's own sessions.** A session Jarvis starts for you (snowpea, external CLI or browser) starts shared, and the ledger says so.
+- **Jarvis's own sessions.** A session Jarvis starts for you (snowpea, external CLI or browser) starts shared, and the ledger says so. A terminal Jarvis creates starts shared too. Jarvis cannot turn a switch on for anything else.
 - **Children and forks** take the switch of the session they come from.
 
 Turning a session off does not remove its delegations. They simply have no effect while it is off. What was waiting for Jarvis in that session comes to you at once. Turning it on routes what waits there as if it had just been asked.
@@ -363,7 +365,7 @@ Jarvis can read and, under the delegation rules, instruct sessions of Claude Cod
 
 The steps are on the [External sessions](external-sessions.md) page.
 
-**Terminals (beta).** Jarvis can also see the terminal sessions in the projects it covers, read their screens, type into CLI terminals on your request or delegated work, and start Claude Code, Codex, agy or Cursor in a terminal with their default permissions. It never types into a plain shell, never answers a prompt in a terminal started with a dangerous option, and writes every answer to the ledger. See [Terminal sessions (beta)](terminals.md#jarvis-and-terminals-beta).
+**Terminals (beta).** Jarvis can also see the terminals whose Jarvis switch is on, read their screens, type into CLI terminals on your request or delegated work, and start Claude Code, Codex, agy or Cursor in a terminal with their default permissions. It never types into a plain shell, never answers a prompt in a terminal started with a dangerous option, and writes every answer to the ledger. See [Terminal sessions (beta)](terminals.md#jarvis-and-terminals-beta).
 
 ## Settings reference
 
@@ -420,12 +422,12 @@ Jarvis mode is a beta. These are the limits you should know before you rely on i
 - **Jarvis cannot read snowpea's own files.** Its reads exclude snowpea's home folder, and the file a linked `settings.json` points at. Searches leave out lines from secret files.
 - **A guarded action can still go wrong.** A grant you confirm is applied exactly as shown. Read the scope and the guarded kinds before you press Confirm.
 
-## Remote machines (1.77.0)
+## Remote machines
 
-When [remote machines](machines.md) are connected, Jarvis can list and act on their snowpea sessions, external sessions and terminals through an in-process proxy (`jarvisRemote`). Rows are labelled with the machine name and may use ids of the form `<machineId>:<sessionOrTerminalId>`.
+When [remote machines](machines.md) are connected, Jarvis manages their snowpea sessions, external sessions and terminals from the same place as your local ones. Each remote row is labelled with its machine's name, and the wake-up that reports it names the machine too.
 
-Jarvis manages a session or terminal **only when its Jarvis switch is on** — locally and on the remote. A person (or an allowed remote web login on the local core) turns the switch on; Jarvis cannot turn it on. New terminals start with the switch off except terminals Jarvis creates (`parent=jarvis`).
-
-When you type into a supervised terminal or session yourself, Jarvis steps back for `jarvis.quietMinutes` (the same pause as a snowpea chat). Human `terminal.write` with `human: true` from a person connection pauses Jarvis there; keystrokes Jarvis sends never count as human input.
-
-Jarvis never uses trust, unrestricted mode or dangerous options on a remote machine, and refuses a remote id when the switch is off as if it did not exist.
+- **The same switch.** Jarvis manages a remote session or terminal only when its own Jarvis switch is on. You turn it on, on this computer; Jarvis cannot. A terminal that Jarvis creates on a machine starts with its switch on. Every other remote item starts with its switch off. A switched-off item is invisible to Jarvis, as if it did not exist.
+- **The same safety rules.** Jarvis's delegation levels, guarded kinds, always-yours list and blocked-command lists apply to a remote item exactly as to a local one.
+- **Never the strong options.** Jarvis never uses trust, unrestricted mode or a dangerous permission option on a remote machine.
+- **Permission prompts go to you.** Jarvis does not answer a permission prompt in a terminal on a remote machine. That prompt is yours, the same as a prompt you could not decide here.
+- **Stepping in works the same.** When you type into a remote session or terminal yourself, Jarvis steps back for `jarvis.quietMinutes`, the same as in a local chat. Keys that Jarvis sends never count as your input.

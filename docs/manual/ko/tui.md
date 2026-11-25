@@ -483,6 +483,8 @@ snowpea --inline
 
 snowpea 세션은 터미널에서도 볼 수 있습니다. 같은 세션에 붙은 snowpea CLI를 채팅 옆이나 채팅 대신 띄우는 방식입니다. `snowpea --session <id>`는 이 TUI를 로컬 데몬에 이미 있는 세션에 붙입니다. 새 세션을 만들지 않고 그 세션을 재개합니다. 기본 보기 설정, 상태 점, `snowpea term`은 [터미널 세션 (베타)](terminals.md)에서 읽으세요.
 
+터미널 UI는 이 컴퓨터의 데몬(`--docker`를 붙이면 [샌드박스](sandbox.md))에 연결합니다. `snowpea --remote`는 1.78.0에서 없어졌습니다. 다른 컴퓨터를 쓰려면 [원격 머신](machines.md)으로 추가하세요. `snowpea machine add`로 하거나 데스크톱 앱, snowpea 웹의 사이드바에서 추가합니다. 그러면 그 컴퓨터의 세션과 터미널은 여기가 아니라 그곳에 나타납니다.
+
 ## 키
 
 | 키 | 하는 일 |

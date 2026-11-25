@@ -338,6 +338,8 @@ snowpea --inline
 
 Una sesión de snowpea también se puede mostrar en un terminal: la CLI de snowpea adjunta a la misma sesión, junto al chat o en lugar de él. `snowpea --session <id>` abre esta TUI sobre una sesión que ya existe en el daemon local, reanudándola en lugar de crear una nueva. Para el ajuste de vista por defecto, los puntos de estado y `snowpea term`, lee [Sesiones de terminal (beta)](terminals.md).
 
+La interfaz de terminal funciona contra el daemon de este equipo (o contra un [sandbox](../en/sandbox.md) con `--docker`). `snowpea --remote` se eliminó en la 1.78.0. Para usar otro equipo, añádelo como [máquina remota](../en/machines.md) con `snowpea machine add` o desde la barra lateral de la aplicación de escritorio o de snowpea web; sus sesiones y terminales se muestran allí, no aquí.
+
 ## Teclas
 
 | Tecla | Qué hace |

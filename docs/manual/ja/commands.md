@@ -222,6 +222,19 @@ snowpea service uninstall
 
 `team status` は実行中のチームについて、各タスクの状態とリトライ回数を報告します。`team list`、`create`、`use`、`delete` のほうは、再利用できるエージェントの名簿を管理します。`/team create` が `<workdir>/.snowpea/settings.json` に書き込むのと同じプロジェクトのチームで、グローバルのものと一緒に、有効なチームに印を付けて一覧されます。`team delete` が消せるのはプロジェクトのチームだけです。`service` はデーモンをログイン時に起動するよう登録します — Linux では systemd user unit、macOS では launchd agent、Windows ではスケジュールされたタスクです。デフォルトでは無効になっており、誰もターミナルにログインしなくてもスケジュールやゲートウェイを再起動後も生き残らせたい場合にのみ必要です。
 
+### マシンとターミナル
+
+```bash
+snowpea machine list
+snowpea machine add user@host --label build
+snowpea machine connect <id>
+snowpea machine disconnect <id>
+snowpea machine remove <id>
+snowpea term ls --machine <id>
+```
+
+`machine` は SSH の[リモートマシン](../en/machines.md)を管理します。`add` はマシンを登録するだけで、`connect` が接続を開きます。`--key PATH` は秘密鍵ファイルを指定します。`term` に `--machine <id>` を付けるか、id の代わりに `MACHINE:ID` と書くと、リモートマシン上のターミナルに届きます。`snowpea --remote` と `snowpea remote up` は 1.78.0 で削除されました。
+
 ### Global options
 
 | Option | Meaning |

@@ -17,13 +17,13 @@ Related: [External sessions (beta)](external-sessions.md) · [Jarvis mode (beta)
 
 ## External CLI sessions as terminals
 
-By default (`jarvis.external.view` set to `terminal`), an external session opens as a terminal: the CLI runs in a pane, in place of the chat view. Set it to `chat` to keep the structured chat view that snowpea used before. Clients that do not ask for a view keep the chat view.
+An external session always opens as a terminal, on this computer and on a [remote machine](machines.md): the CLI runs in a pane. There is no chat view for external sessions. This holds for every CLI and every operating system.
 
 - A new session starts the CLI in the project folder you chose.
-- An existing session resumes with the CLI's own resume command (`claude --resume <id>`, `codex resume <id>`, and the matching agy and Cursor commands). The session id comes from the hook integration, so run [`snowpea integration install`](integrations.md) first if you want resume to work from a terminal.
-- A session that is already live in another terminal: snowpea still runs the CLI's resume command in its pane. If the CLI reports that another process holds the session, snowpea tails that process read-only until it exits; otherwise you work in the pane.
+- Opening an existing session resumes it in a snowpea terminal, with the CLI's own resume command (`claude --resume <id>`, `codex resume <id>`, and the matching agy and Cursor commands). The session id comes from the hook integration, so run [`snowpea integration install`](integrations.md) first if you want resume to work.
+- A session that is live somewhere else is resumed anyway, in its own pane; the CLI handles the rest.
 
-In the app, the project's **+** menu → **New external session…** asks **Open as**: **Terminal** or **Chat** (preselected from `jarvis.external.view`). For a terminal it lists the CLI's permission options ([below](#permission-options)) instead of the chat modes. **Load external session…** has **Resume in a terminal** on each session that nothing runs at the moment.
+In the app, the project's **+** menu → **New external session…** opens a dialog with **Start new session** first, then the project's sessions, newest first. Choosing a session resumes it in a terminal. Pick the permission option before you start ([below](#permission-options)): a dangerous one shows an inline warning, and there is no separate confirm dialog.
 
 The CLI runs inside your own interactive shell, so your PATH and tools such as nvm still apply. When the CLI exits, the pane drops back to the shell, unless `terminals.keepShell` is off.
 
@@ -31,15 +31,16 @@ The CLI runs inside your own interactive shell, so your PATH and tools such as n
 
 Every snowpea session can be shown two ways: as the chat, or as the snowpea CLI running in a terminal attached to the same session. Both views are clients of the same session, so you can have both open at once. In the app, the conversation header has a **Terminal** tab next to **Chat** and **Trajectory** (only with a daemon that supports it). The tab reuses the session's running terminal, or starts one.
 
-- The default view is `ui.sessionView`: `chat` (the default) or `terminal`. It is kept in this daemon's settings, so every app window and web page connected to it opens sessions the same way. Change it in **Settings → Terminal**.
+- On this computer the default view is `ui.sessionView`: `chat` (the default) or `terminal`. It is kept in this daemon's settings, so every app window and web page connected to it opens sessions the same way. Change it in **Settings → Terminal**.
+- On a remote machine the default is `ui.remoteSessionView` (also `chat` by default), and a machine can override it. The first time you open a snowpea session on a machine with no setting, snowpea asks chat or terminal and remembers the answer. See [Remote machines](machines.md#how-a-session-opens).
 - To attach from a shell to a session that already exists in the local daemon, run `snowpea --session <id>`. The TUI resumes that session instead of creating a new one.
 
 ## Settings
 
 | Key | Default | What it does |
 |---|---|---|
-| `ui.sessionView` | `chat` | the default view of a snowpea session |
-| `jarvis.external.view` | `terminal` | how an external CLI session opens: `terminal` or `chat` |
+| `ui.sessionView` | `chat` | the default view of a snowpea session on this computer |
+| `ui.remoteSessionView` | `chat` | the default view of a snowpea session on a remote machine |
 | `terminals.max` | `16` | most terminals at once (1 to 64) |
 | `terminals.keepShell` | `true` | after the CLI exits, drop back to the shell instead of closing the pane |
 | `terminals.headlessCols` / `terminals.headlessRows` | `160` / `48` | the size a terminal uses while no viewer is attached |
@@ -91,7 +92,7 @@ In the app you pick at most one option: the CLI takes one permission mode. An op
 
 A dangerous option:
 
-- shows a red badge everywhere it appears, and the app asks you to confirm the risk before it starts;
+- shows a red badge everywhere it appears and an inline warning in the start dialog. There is no separate confirm dialog, so read the warning before you pick it;
 - is refused when Jarvis or any tool asks for it, whatever the settings;
 - is refused while `web.remote.maxMode` is below `auto`;
 - is refused over the web tunnel unless the terminal is unlocked ([snowpea web](web.md#a-public-address-with-a-tunnel)).
@@ -125,6 +126,8 @@ snowpea term send <id> "run the tests" # type the text and press Enter
 snowpea term send <id> --no-submit "draft"   # type without pressing Enter
 snowpea term attach <id>               # take over the terminal in this window
 snowpea term attach <id> --observe     # watch only: never types, never resizes
+snowpea term ls --machine <machine-id> # the terminals of a remote machine
+snowpea term read <machine-id>:<id>    # the same, with MACHINE:ID instead of --machine
 ```
 
 - `attach` puts your terminal in raw mode and shows the session. **Ctrl+\\** detaches and leaves the session running. `attach` needs an interactive terminal and is not supported on Windows yet; on Windows use `read` and `send`, or open the terminal in the app.
@@ -133,7 +136,7 @@ snowpea term attach <id> --observe     # watch only: never types, never resizes
 
 ## Jarvis and terminals (beta)
 
-When Jarvis mode is on, Jarvis sees the terminals in the projects it can see, and has these tools:
+When Jarvis mode is on, Jarvis sees a terminal only when that terminal's own Jarvis switch is on. A terminal with its switch off is invisible to Jarvis. The same rule covers terminals on [remote machines](jarvis.md#remote-machines). Jarvis has these tools:
 
 | Tool | What it does |
 |---|---|
@@ -150,6 +153,8 @@ The rules:
 - Jarvis types only into CLI terminals. It never types into a plain shell, never uses `force`, and never types into a terminal started with a dangerous option.
 - Jarvis types only for your request or for work you delegated to it. Every read and every instruction is logged in the access log and the decision ledger.
 - `terminal_create` never starts a dangerous option, and labels the terminal as started by Jarvis.
+- Jarvis cannot switch a terminal's Jarvis switch on. A terminal that Jarvis creates starts with its switch on; every other terminal starts with it off, until you turn it on.
+- When you type into a terminal that Jarvis manages, Jarvis steps back for `jarvis.quietMinutes` (default 10), or until you hand it back. Your keystrokes count; keys Jarvis sends do not.
 
 What wakes Jarvis:
 
@@ -157,4 +162,4 @@ What wakes Jarvis:
 - every other terminal goes into the 30-second digest;
 - when a terminal that Jarvis started becomes blocked, errors or exits, Jarvis gets a note with that terminal's last 20 lines. The note is an event for Jarvis; it is never typed into the terminal.
 
-Answering a prompt in a terminal: Jarvis answers a permission prompt only when all of these hold: the terminal is fully delegated to Jarvis and not held by you, it is not a dangerous terminal, the screen rule could read the command the prompt asks about, and the delegation engine classifies that command as `safe` or `risky`. For `guarded` or `never` commands, and for anything else, the prompt is yours. Every answer, and every refusal, is written to the decision ledger. Delegation levels are described in [Jarvis mode](jarvis.md#delegation).
+Answering a prompt in a terminal: Jarvis answers a permission prompt only when all of these hold: the terminal is on this computer, not on a remote machine; it is fully delegated to Jarvis and not held by you; it is not a dangerous terminal; the screen rule could read the command the prompt asks about; and the delegation engine classifies that command as `safe` or `risky`. A permission prompt on a remote machine always goes to you. For `guarded` or `never` commands, and for anything else, the prompt is yours. Every answer, and every refusal, is written to the decision ledger. Delegation levels are described in [Jarvis mode](jarvis.md#delegation).

@@ -1,5 +1,7 @@
 # `remote up`, file RPC and machine identity (protocol 1.40.0)
 
+> **Superseded (1.78.0).** `snowpea remote up`, `snowpea-core remote up` and `snowpea --remote` were removed in 1.78.0 and now exit with an error that points to Machines. Remote access is now the Machines feature (ssh machines in the sidebar, `snowpea machine`, protocol 1.76.0 onward; see `docs/manual/en/machines.md`). The `fs.*` methods, `system.hello` capabilities and machine identity described below remain in the protocol as they shipped in 1.40.0; this note is kept as the record of that design.
+
 Contract for an app that drives a remote or container daemon with its own UI (the snowpea
 browser, `snowpea-browser/docs/design/remote-sessions.md`). User-facing text: `docs/manual/en/remote.md`
 ("For a program"). Wire reference: `docs/protocol.md` (`fs.*`, `system.hello`, `session.list`).
