@@ -230,7 +230,7 @@ def test_the_scratch_nudge_names_the_results_folder() -> None:
 # ---------------------------------------------------------------------------
 
 def test_capability_and_version() -> None:
-    assert "sessionPaths" in CAPABILITIES and PROTOCOL_VERSION == "1.77.0"
+    assert "sessionPaths" in CAPABILITIES and PROTOCOL_VERSION == "1.79.0"
 
 
 @pytest.mark.asyncio

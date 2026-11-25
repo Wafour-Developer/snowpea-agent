@@ -73,7 +73,7 @@ class _Events:
 
 
 def test_protocol_advertises_the_fallback() -> None:
-    assert PROTOCOL_VERSION == "1.77.0"
+    assert PROTOCOL_VERSION == "1.79.0"
     assert "reasoningOnlyFallback" in CAPABILITIES
 
 

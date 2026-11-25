@@ -487,7 +487,7 @@ def test_jarvis_proxy_refuses_trust() -> None:
 
 
 def test_proxy_param_fields_are_classified() -> None:
-    from snowpea_core.machines.gates import PROXY_PARAM_CLASSIFICATION
+    from snowpea_core.machines.gates import _GATES, PROXY_PARAM_CLASSIFICATION
     from snowpea_core.machines.proxy import PROXY_METHODS
     from snowpea_core.server.protocol import METHODS
 
@@ -497,6 +497,10 @@ def test_proxy_param_fields_are_classified() -> None:
         assert known is not None, f"missing classification for {method}"
         model_fields = set(spec.params.model_fields)
         assert set(known) == model_fields, f"{method}: classify {model_fields - set(known)}"
+        gated_fields = [name for name, kind in known.items()
+                        if kind == "gated" and name != "machine"]
+        if gated_fields and method not in _GATES:
+            pytest.fail(f"{method} has gated fields but no entry in _GATES")
 
 
 def test_n8_relay_request_id_prefix() -> None:

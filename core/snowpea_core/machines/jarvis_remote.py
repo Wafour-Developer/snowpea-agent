@@ -108,6 +108,8 @@ class RemoteTerminalRow:
     jarvis_on: bool
     status: dict[str, Any] = field(default_factory=dict)
     parent: str | None = None
+    dangerous: bool = False
+    jarvis_paused_until: str | None = None
 
 
 @dataclass
@@ -122,8 +124,10 @@ class RemoteSnowpeaSessionRow:
     jarvis_on: bool
     kind: str = "chat"
     mode: str | None = None
+    auto_after_plan: bool = False
     parent: str | None = None
     last_activity: str | None = None
+    paused_until: str | None = None
     pending_approvals: int = 0
     pending_questions: int = 0
 
@@ -148,6 +152,8 @@ class RemoteExternalSessionRow:
     updated_at: str | None = None
     preview: str = ""
     security_lists_apply: bool | None = None
+    paused_until: str | None = None
+    jarvis_paused_until: str | None = None
 
     @property
     def local_key(self) -> str:
@@ -197,6 +203,8 @@ class JarvisRemoteCache:
             jarvis_on=bool(item.get("jarvisOn")),
             status=dict(item.get("status") or {}),
             parent=item.get("parent"),
+            dangerous=bool(item.get("dangerous")),
+            jarvis_paused_until=item.get("jarvisPausedUntil"),
         )
 
     def jarvis_on(self, machine_id: str, terminal_id: str) -> bool:
@@ -233,7 +241,11 @@ class JarvisRemoteCache:
             jarvis_on=on,
             kind=str(item.get("kind") or "chat"),
             mode=item.get("mode"),
+            auto_after_plan=bool(item.get("autoAfterPlan")),
             parent=item.get("parentSessionId"),
+            paused_until=(item.get("jarvis") or {}).get("pausedUntil")
+            if isinstance(item.get("jarvis"), dict)
+            else item.get("pausedUntil"),
             last_activity=item.get("lastActivityAt"),
             pending_approvals=int(item.get("pendingApprovals") or 0),
             pending_questions=int(item.get("pendingQuestions") or 0),
@@ -259,6 +271,13 @@ class JarvisRemoteCache:
     def drop_session(self, machine_id: str, session_id: str) -> None:
         self._sessions.pop(qualify(machine_id, session_id), None)
 
+    def prune_terminals(self, machine_id: str, keep: set[str]) -> None:
+        for key in [
+            k for k, r in self._rows.items()
+            if r.machine_id == machine_id and r.terminal_id not in keep
+        ]:
+            self._rows.pop(key, None)
+
     def prune_sessions(self, machine_id: str, keep: set[str]) -> None:
         """Forget this machine's sessions a full ``session.list`` no longer shows."""
         for key in [
@@ -275,6 +294,10 @@ class JarvisRemoteCache:
             return
         cli, ext_id = parts
         on = bool(item.get("jarvisOn")) and not item.get("jarvisLocked")
+        jarvis = item.get("jarvis") or {}
+        paused = None
+        if isinstance(jarvis, dict):
+            paused = jarvis.get("pausedUntil")
         self._externals[qualify(machine_id, external_local_key(cli, ext_id))] = (
             RemoteExternalSessionRow(
                 machine_id=machine_id,
@@ -293,6 +316,8 @@ class JarvisRemoteCache:
                 updated_at=item.get("updatedAt"),
                 preview=str(item.get("preview") or ""),
                 security_lists_apply=item.get("securityListsApply"),
+                paused_until=paused,
+                jarvis_paused_until=item.get("jarvisPausedUntil"),
             )
         )
 
@@ -516,11 +541,24 @@ class RemoteJarvisRelay:
         if intake is None:
             return
         from snowpea_core.jarvis.intake import WakeItem, _one_line
+        from snowpea_core.jarvis.terminals import safe_title
 
+        if intake.budget.exhausted():
+            return
+        intake.budget.count_wake()
         importance = "high" if event in ("blocked", "error") else "normal"
-        intake._queue_routed(  # noqa: SLF001
-            WakeItem(_one_line(text, 400), session_id=key, reason=event, importance=importance)
+        item = WakeItem(
+            _one_line(safe_title(text), 400), session_id=key, reason=event, importance=importance
         )
+        jarvis = getattr(core, "jarvis", None)
+        routed = False
+        if jarvis is not None:
+            with contextlib.suppress(Exception):
+                routed = jarvis.engine.effective(key, None).level == "full"
+        if routed:
+            intake._queue_routed(item)  # noqa: SLF001
+        else:
+            intake._queue_notice(item)  # noqa: SLF001
 
     async def _maybe_refresh(self, core: Any) -> None:
         now = time.monotonic()
@@ -535,8 +573,13 @@ class RemoteJarvisRelay:
             return
         self._last_refresh = time.monotonic()
         before = self.cache.visible_keys(self.machine_id)
+        term_listed: dict[str, Any] | None = None
         with contextlib.suppress(Exception):
-            await manager.jarvis_proxy_call(self.machine_id, "terminal.list", {})
+            term_listed = await manager.jarvis_proxy_call(self.machine_id, "terminal.list", {})
+        if term_listed is not None:
+            keep_t = {str(t.get("terminalId")) for t in term_listed.get("terminals") or []
+                      if isinstance(t, dict)}
+            self.cache.prune_terminals(self.machine_id, keep_t)
         try:
             listed = await manager.jarvis_proxy_call(self.machine_id, "session.list", {})
         except Exception:  # noqa: BLE001
@@ -638,7 +681,9 @@ class RemoteJarvisRelay:
             return
         digest.status = status if status in ("running", "error") else "idle"
         if title:
-            digest.title = f"{self.label}: {title}"
+            from snowpea_core.jarvis.terminals import safe_title
+
+            digest.title = f"{self.label}: {safe_title(title)}"
 
     def _on_status(
         self, core: Any, key: str, noun: str, ident: str, title: str, status: str
@@ -757,6 +802,19 @@ class RemoteJarvisRelay:
 
     async def _handle_switch_changed(self, core: Any, params: dict[str, Any]) -> None:
         """``jarvis.session.changed``: a switch flipped on the remote machine."""
+        tid = str(params.get("terminalId") or "")
+        if tid:
+            key = delegation_key(self.machine_id, tid)
+            enabled = bool(params.get("enabled"))
+            row = self.cache.get(key) or self.cache._rows.get(key)  # noqa: SLF001
+            if row is None:
+                await self._maybe_refresh(core)
+                row = self.cache._rows.get(key)  # noqa: SLF001
+            if row is not None:
+                row.jarvis_on = enabled
+            if not enabled:
+                self._forget(core, key)
+            return
         sid = str(params.get("sessionId") or "")
         ref = params.get("external")
         enabled = bool(params.get("enabled"))

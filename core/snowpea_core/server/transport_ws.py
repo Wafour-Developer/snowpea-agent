@@ -131,6 +131,8 @@ def _advertised_capabilities() -> list[str]:
     caps = list(CAPABILITIES)
     if not advertised():
         caps = [c for c in caps if c != "improvementFeedback"]
+    # holdSec was only for the removed ``snowpea remote up`` connector client (1.40.0).
+    caps = [c for c in caps if c != "holdSec"]
     return caps
 
 

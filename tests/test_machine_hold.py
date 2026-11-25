@@ -126,13 +126,14 @@ async def test_hello_reports_the_machine_and_the_capabilities(
         await ws.close()
     finally:
         await daemon.stop()
-    assert reply["protocolVersion"] == "1.77.0"
+    assert reply["protocolVersion"] == "1.79.0"
     machine = reply["machine"]
     assert set(machine) == {"id", "hostname", "os", "container"}
     assert machine["id"] == machine_mod.machine_id(tmp_path / "home")
     assert isinstance(machine["container"], bool)
-    assert {"fs", "machineIdentity", "holdSec"} <= set(reply["capabilities"])
-    assert {"fs", "machineIdentity", "holdSec"} <= set(CAPABILITIES)
+    assert {"fs", "machineIdentity"} <= set(reply["capabilities"])
+    assert "holdSec" in CAPABILITIES
+    assert "holdSec" not in set(reply["capabilities"])
 
 
 async def test_session_list_rows_name_the_machine(

@@ -157,14 +157,30 @@ def _last_lines(term: Any, count: int) -> list[str]:
     return lines[-count:]
 
 
+def _auth_key(term: Any) -> str:
+    from snowpea_core.jarvis.remote_terminal import RemoteTerminalView, remote_key
+
+    if isinstance(term, RemoteTerminalView):
+        return remote_key(term)
+    return key_of(term)
+
+
+def _auth_project(service: JarvisService, term: Any) -> str | None:
+    from snowpea_core.jarvis.remote_terminal import RemoteTerminalView
+
+    if isinstance(term, RemoteTerminalView):
+        return None
+    return _project_of(service, term.spec.cwd)
+
+
 def delegated(service: JarvisService, term: Any) -> bool:
     """Fully delegated and not held by the person right now."""
-    key = key_of(term)
+    key = _auth_key(term)
     engine = service.engine
     with contextlib.suppress(Exception):
         if engine.pause_state(key).paused:
             return False
-        project = _project_of(service, term.spec.cwd)
+        project = _auth_project(service, term)
         return engine.effective(key, project).level == "full"
     return False
 
@@ -367,9 +383,9 @@ def _may_type(service: JarvisService, ctx: ToolContext, term: Any) -> None:
         )
     if not term.alive:
         raise Refused(f"terminal {term.id} has ended")
-    key = key_of(term)
+    key = _auth_key(term)
     _not_paused(service, key)
-    _authorized(service, ctx, key, _project_of(service, term.spec.cwd))
+    _authorized(service, ctx, key, _auth_project(service, term))
 
 
 def _status_text(term: Any) -> str:
@@ -446,14 +462,10 @@ async def terminal_read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     raw_id = _text(args, "id")
     machine_id, local_id = split_qualified_id(raw_id)
     if machine_id:
-        from snowpea_core.jarvis.tools import Refused
+        from snowpea_core.jarvis.remote_terminal import load_remote_terminal
 
-        machines = getattr(service.core, "machines", None)
-        cache = getattr(machines, "_jarvis_cache", None) if machines is not None else None
-        if cache is not None:
-            await jarvis_proxy_call(service.core, machine_id, "terminal.list", {})
-            if not cache.jarvis_on(machine_id, local_id):
-                raise Refused(f"no terminal {raw_id!r} that Jarvis supervises")
+        view = await load_remote_terminal(service, raw_id)
+        _remote_pause(service, view)
         lines = _int(args, "lines", READ_DEFAULT, 1, READ_MAX)
         result = await jarvis_proxy_call(
             service.core,
@@ -486,39 +498,60 @@ async def terminal_read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                    state=term.status.state, alive=term.alive)
 
 
-async def _remote_op(
-    service: JarvisService,
-    raw_id: str,
-    method: str,
-    params: dict[str, Any],
-    *,
-    action: str,
-    summary: str,
-) -> ToolResult:
-    from snowpea_core.jarvis.tools import _result
-    from snowpea_core.machines.jarvis_remote import (
-        jarvis_proxy_call,
-        machine_label,
-        split_qualified_id,
+def _remote_machine_label(service: JarvisService, machine_id: str) -> str:
+    from snowpea_core.machines.jarvis_remote import machine_label
+
+    machines = getattr(service.core, "machines", None)
+    return machine_label(machines, machine_id) if machines is not None else machine_id[:8]
+
+
+def _remote_pause(service: JarvisService, view: Any) -> None:
+    """Local pause plus the remote machine's ``jarvisPausedUntil`` when present."""
+    from snowpea_core.jarvis.delegation import parse_time
+    from snowpea_core.jarvis.remote_terminal import remote_key
+    from snowpea_core.jarvis.tools import Refused, _not_paused
+
+    key = remote_key(view)
+    _not_paused(service, key)
+    until = getattr(view, "jarvis_paused_until", None)
+    if until and parse_time(str(until)) > service.engine.now():
+        raise Refused(
+            "the person is working in that terminal on the remote machine; leave it to them "
+            "until they hand it back"
+        )
+
+
+def _remote_decision(service: JarvisService, view: Any, **fields: Any) -> Any:
+    from snowpea_core.machines.jarvis_remote import qualify
+
+    label = _remote_machine_label(service, view.machine_id)
+    summary = str(fields.pop("summary", ""))
+    fields["summary"] = f"[{label}] {summary}"[:300]
+    ref = _external_ref(view)
+    session_id = view.qualified_id
+    if ref:
+        session_id = qualify(view.machine_id, f"ext:{ref['cli']}:{ref['id']}")
+    return service.record_decision(
+        session_id=session_id,
+        external=None,
+        project=None,
+        decided_by="jarvis",
+        **fields,
     )
 
-    machine_id, local_id = split_qualified_id(raw_id)
-    if machine_id is None:
-        raise RuntimeError("expected a qualified remote id")
-    machines = getattr(service.core, "machines", None)
-    label = machine_label(machines, machine_id) if machines is not None else machine_id[:8]
-    result = await jarvis_proxy_call(
-        service.core, machine_id, method, {**params, "terminalId": local_id}
-    )
+
+async def _remote_access(
+    service: JarvisService, view: Any, action: str, summary: str
+) -> None:
+    label = _remote_machine_label(service, view.machine_id)
     await service.record_access(
-        session_id=raw_id,
+        session_id=view.qualified_id,
         project=None,
         host=f"machine:{label}",
         action=action,
         summary=summary,
-        external=None,
+        external=_external_ref(view),
     )
-    return _result(f"remote terminal {raw_id} ({label}): done", **result)
 
 
 async def terminal_send(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
@@ -537,21 +570,46 @@ async def terminal_send(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     raw_id = _text(args, "id")
     machine_id, local_id = split_qualified_id(raw_id)
     if machine_id:
-        from snowpea_core.jarvis.tools import _not_paused
+        from snowpea_core.jarvis.remote_terminal import load_remote_terminal
+        from snowpea_core.machines.jarvis_remote import jarvis_proxy_call
 
-        _not_paused(service, raw_id)
+        view = await load_remote_terminal(service, raw_id)
+        _remote_pause(service, view)
         text = _plain(sanitize_agent_text(_text(args, "text", limit=PROMPT_MAX_CHARS)).strip())
         if not text:
             raise Refused("text is empty once control characters are removed")
-        sent = await _remote_op(
-            service,
-            raw_id,
+        _may_type(service, ctx, view)
+        prefixes = ESCAPE_PREFIXES.get(view.spec.profile, ("!", "#", "/"))
+        for line in text.split("\n"):
+            if line.lstrip().startswith(prefixes):
+                raise Refused(
+                    f"a line starting with {' '.join(prefixes)} is a shell escape, memory note "
+                    "or command to this CLI, not a message; send plain text"
+                )
+        sent = await jarvis_proxy_call(
+            service.core,
+            view.machine_id,
             "terminal.send",
-            {"text": text, "force": False},
-            action="prompt",
-            summary=f"typed into remote terminal {raw_id}: {text}"[:160],
+            {"terminalId": view.local_id, "text": text, "force": False},
         )
-        return sent
+        if not sent.get("sent"):
+            raise Refused(
+                f"terminal {raw_id} is blocked on a prompt "
+                f"({view.status.kind or 'waiting'}); nothing was typed. Answer it with "
+                "terminal_keys if it is yours to answer, else tell the person"
+            )
+        remote_label = _remote_machine_label(service, view.machine_id)
+        _remote_decision(
+            service, view, kind="prompt",
+            summary=f"typed into {raw_id}: {text}",
+            importance="normal",
+        )
+        await _remote_access(service, view, "prompt", text[:160])
+        started = (
+            "it started working" if sent.get("accepted") else "it has not shown that it started yet"
+        )
+        return _result(f"typed into {raw_id} ({remote_label}); {started}",
+                       accepted=bool(sent.get("accepted")))
     term = _find(service, raw_id)
     # What reaches the PTY is plain text (the gate strips controls again).
     text = _plain(sanitize_agent_text(_text(args, "text", limit=PROMPT_MAX_CHARS)).strip())
@@ -623,10 +681,10 @@ def _prompt_refusal(service: JarvisService, term: Any) -> tuple[str | None, str 
         return None, f"the command it asks about could not be read safely ({why})"
     from snowpea_core.jarvis.classify import ClassifyRequest
 
-    project = _project_of(service, term.spec.cwd)
+    project = _auth_project(service, term)
     verdict = service.engine._verdict(ClassifyRequest(
         tool="Bash", args={"command": command}, tags=("exec",), workdir=project,
-        session_id=key_of(term), external=True,
+        session_id=_auth_key(term), external=True,
     ))
     if verdict.classification not in ("safe", "risky"):
         return command, f"the engine classifies the command {verdict.classification}"
@@ -659,7 +717,9 @@ async def terminal_keys(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     raw_id = _text(args, "id")
     machine_id, _local_id = split_qualified_id(raw_id)
     if machine_id:
-        from snowpea_core.jarvis.tools import _not_paused
+        from snowpea_core.jarvis.remote_terminal import load_remote_terminal, reload_screen
+        from snowpea_core.machines.jarvis_remote import jarvis_proxy_call
+        from snowpea_core.terminal.rules.prompt import same_command
 
         keys = args.get("keys")
         if not isinstance(keys, list) or not keys or len(keys) > KEYS_MAX:
@@ -667,15 +727,96 @@ async def terminal_keys(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         names = [str(k).strip().lower() for k in keys]
         if not all(KEY_RE.match(k) for k in names):
             raise Refused("only named keys (enter, escape, up, down, 1 …)")
-        _not_paused(service, raw_id)
-        return await _remote_op(
-            service,
-            raw_id,
+        view = await load_remote_terminal(service, raw_id)
+        _remote_pause(service, view)
+        _may_type(service, ctx, view)
+        status = view.status
+        if status.state == "blocked":
+            if status.kind != "permission":
+                raise Refused(
+                    f"terminal {raw_id} waits on a {status.kind or 'prompt'} for the person; "
+                    "tell them"
+                )
+            profile = profile_def(view.spec.profile)
+            approve = list(profile.approve_keys) if profile else []
+            deny = list(profile.deny_keys) if profile else []
+            if names not in (approve, deny):
+                raise Refused(
+                    "a permission prompt is answered with its own keys only: "
+                    f"approve {approve or 'n/a'}, deny {deny or 'n/a'}"
+                )
+            decision = "allow" if names == approve else "deny"
+            if decision == "allow":
+                command, refusal = _prompt_refusal(service, view)
+            else:
+                command = None
+                refusal = (None if delegated(service, view)
+                           else "the terminal is not under full delegation")
+            shown = (command or "")[:200]
+            if refusal is not None:
+                _remote_decision(
+                    service, view, kind="escalate",
+                    summary=f"left the prompt in {raw_id} to the person: {refusal}",
+                    reason=refusal, importance="high", tool="terminal",
+                )
+                raise Refused(f"this prompt is the person's: {refusal}; tell them")
+            await reload_screen(service, view)
+            _remote_pause(service, view)
+            now_status = view.status
+            if now_status.state != "blocked" or now_status.kind != "permission":
+                raise Refused("the prompt is no longer showing")
+            if command is not None:
+                now_cmd, _why = screen_command(view)
+                if not same_command(now_cmd, command):
+                    raise Refused("another prompt is showing now")
+            if view.hook_command is None and command is not None:
+                raise Refused(
+                    "the remote machine does not expose the command hook; tell the person "
+                    "to answer this prompt there"
+                )
+            await jarvis_proxy_call(
+                service.core, view.machine_id,
+                "terminal.keys",
+                {
+                    "terminalId": view.local_id,
+                    "keys": names,
+                    "expectState": "blocked",
+                },
+            )
+            _remote_decision(
+                service, view, kind="approval", decision=decision, tool="terminal",
+                summary=f"{decision} in {raw_id}: {shown}", importance="normal",
+            )
+            await _remote_access(service, view, "approval", f"{decision}: {shown}"[:160])
+            return _result(f"answered the prompt in {raw_id}: {decision}", decision=decision)
+        if not all(FREE_KEY_RE.match(k) for k in names):
+            raise Refused(
+                "outside a permission prompt only navigation keys, Enter, Esc and digits; "
+                "never a mode switch or a Ctrl chord"
+            )
+        await reload_screen(service, view)
+        _remote_pause(service, view)
+        if view.status.state == "blocked":
+            raise Refused(
+                f"terminal {raw_id} is blocked on a {view.status.kind or 'prompt'} now; "
+                "tell the person"
+            )
+        await jarvis_proxy_call(
+            service.core, view.machine_id,
             "terminal.keys",
-            {"keys": names},
-            action="prompt",
-            summary="keys: " + " ".join(names),
+            {
+                "terminalId": view.local_id,
+                "keys": names,
+                "expectState": "idle",
+            },
         )
+        _remote_decision(
+            service, view, kind="prompt",
+            summary=f"pressed {' '.join(names)} in {raw_id}",
+            importance="low",
+        )
+        await _remote_access(service, view, "prompt", "keys: " + " ".join(names))
+        return _result(f"pressed {' '.join(names)} in {raw_id}")
     term = _find(service, raw_id)
     keys = args.get("keys")
     if not isinstance(keys, list) or not keys or len(keys) > KEYS_MAX:
@@ -742,18 +883,23 @@ async def terminal_interrupt(ctx: ToolContext, args: dict[str, Any]) -> ToolResu
     raw_id = _text(args, "id")
     machine_id, _local_id = split_qualified_id(raw_id)
     if machine_id:
-        from snowpea_core.jarvis.tools import _not_paused
+        from snowpea_core.jarvis.remote_terminal import load_remote_terminal
+        from snowpea_core.machines.jarvis_remote import jarvis_proxy_call
 
-        _not_paused(service, raw_id)
-        reason = _text(args, "reason", required=False, limit=300)
-        return await _remote_op(
-            service,
-            raw_id,
-            "terminal.interrupt",
-            {},
-            action="interrupt",
-            summary=reason or "interrupted",
+        view = await load_remote_terminal(service, raw_id)
+        _remote_pause(service, view)
+        _may_type(service, ctx, view)
+        await jarvis_proxy_call(
+            service.core, view.machine_id,
+            "terminal.interrupt", {"terminalId": view.local_id},
         )
+        reason = _text(args, "reason", required=False, limit=300)
+        _remote_decision(
+            service, view, kind="interrupt", reason=reason, importance="high",
+            summary=f"interrupted {raw_id}" + (f": {reason}" if reason else ""),
+        )
+        await _remote_access(service, view, "interrupt", reason or "interrupted")
+        return _result(f"interrupted {raw_id}")
     term = _find(service, raw_id)
     _may_type(service, ctx, term)
     await term.manager.interrupt(term.id)
@@ -774,6 +920,10 @@ async def terminal_wait(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     timeout = _int(args, "timeout", WAIT_DEFAULT, 1, WAIT_MAX)
     output = _text(args, "output", required=False, limit=200) or None
     if machine_id:
+        from snowpea_core.jarvis.remote_terminal import load_remote_terminal
+
+        view = await load_remote_terminal(service, raw_id)
+        _remote_pause(service, view)
         result = await jarvis_proxy_call(
             service.core,
             machine_id,
@@ -841,6 +991,7 @@ async def terminal_create(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     except RpcError as exc:
         raise Refused(f"{exc.message} ({exc.code})") from exc
     term = manager.get(info["terminalId"])
+    service.engine.set_switch(key_of(term), True, by="jarvis", quiet=True)
     _decision(service, term, kind="prompt", importance="normal",
               summary=f"started {label(term)} in {service.projects.name_of(project)}"
               + (f": {prompt}" if prompt else "")[:250])

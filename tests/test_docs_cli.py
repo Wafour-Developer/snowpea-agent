@@ -150,6 +150,12 @@ def test_allowlist_entries_name_a_story(cdc):
         assert "US-" in reason, f"{chain} must name the story that removes it, got {reason!r}"
 
 
+def test_cli_check_defer_entries_name_a_story(cdc):
+    for path, reason in cdc.CLI_CHECK_DEFER.items():
+        assert path.startswith("docs/manual/"), path
+        assert "docs pass" in reason.lower(), f"{path} must name the docs pass, got {reason!r}"
+
+
 # --------------------------------------------------------------------------
 # Extraction and link checking
 # --------------------------------------------------------------------------

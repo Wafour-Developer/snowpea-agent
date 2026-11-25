@@ -19,15 +19,14 @@ import aiohttp
 import pytest
 import pytest_asyncio
 from _support import connect, make_daemon
-from test_cli_remote_up import FAKE_KEYGEN, FAKE_KEYSCAN, FAKE_SSH, KEY_B64
 
 from snowpea_core import __version__
 from snowpea_core.cli import remote
 from snowpea_core.cli.daemon_client import DaemonInfo, read_daemon_json
-from snowpea_core.cli.remote_up import fingerprint
 from snowpea_core.machines.manager import MachineManager
 from snowpea_core.machines.proxy import PROXY_METHODS, refuse_unknown_proxy, strip_machine
 from snowpea_core.machines.registry import MachineRegistry
+from snowpea_core.machines.ssh import fingerprint
 from snowpea_core.server import errors
 from snowpea_core.server.app_server import Daemon
 from snowpea_core.server.errors import RpcError
@@ -36,6 +35,75 @@ from snowpea_core.server.protocol import PROTOCOL_VERSION
 from snowpea_core.server.rpc import RpcConnection
 
 posix_only = pytest.mark.skipif(sys.platform == "win32", reason="POSIX sh and ssh")
+
+KEY_B64 = "AAAAC3NzaC1lZDI1NTE5AAAAIHmKbW0o2A1pQ4FoBvUQJnVIg7E8M2nR2PzJfWq0QUpN"
+
+FAKE_SSH = """\
+import asyncio, os, subprocess, sys
+argv = sys.argv[1:]
+if "-G" in argv:
+    print("user me")
+    print("hostname box.example.com")
+    print("port 22")
+    print("userknownhostsfile " + os.environ["FAKE_KNOWN_HOSTS"])
+    print("globalknownhostsfile /nonexistent/ssh_known_hosts")
+    sys.exit(0)
+if "-O" in argv:
+    sys.exit(0)
+if os.environ.get("FAKE_SSH_LOG"):
+    with open(os.environ["FAKE_SSH_LOG"], "a") as log:
+        log.write(" ".join(argv) + "\\n")
+if "-L" in argv:
+    # the host key must have been pinned before any real connection
+    if "StrictHostKeyChecking=yes" not in argv:
+        sys.exit(77)
+    with open(os.environ["FAKE_TUNNEL_PID"], "w") as handle:
+        handle.write(str(os.getpid()))
+    spec = argv[argv.index("-L") + 1].split(":")
+    local, rport = spec[1], spec[3]
+    async def pipe(r, w):
+        try:
+            while data := await r.read(65536):
+                w.write(data); await w.drain()
+        finally:
+            w.close()
+    async def handle(r, w):
+        ur, uw = await asyncio.open_connection("127.0.0.1", int(rport))
+        await asyncio.gather(pipe(r, uw), pipe(ur, w))
+    async def main():
+        server = await asyncio.start_server(handle, "127.0.0.1", int(local))
+        async with server:
+            await server.serve_forever()
+    asyncio.run(main())
+    sys.exit(0)
+if "StrictHostKeyChecking=yes" not in argv:
+    sys.exit(77)
+if os.environ.get("FAKE_SSH_DENY"):
+    sys.stderr.write("me@box: Permission denied (publickey).\\n")
+    sys.exit(255)
+env = dict(os.environ, HOME=os.environ["FAKE_REMOTE_HOME"])
+env.pop("SNOWPEA_HOME", None)
+sys.exit(subprocess.run(["sh", "-s"], env=env).returncode)
+"""
+
+FAKE_KEYSCAN = f"""\
+import sys
+print("box.example.com ssh-ed25519 {KEY_B64}")
+"""
+
+FAKE_KEYGEN = """\
+import sys
+argv = sys.argv[1:]
+wanted = argv[argv.index("-F") + 1]
+path = argv[argv.index("-f") + 1]
+try:
+    hit = any(line.split()[0] == wanted for line in open(path) if line.strip())
+except OSError:
+    hit = False
+if hit:
+    print("# Host found")
+sys.exit(0 if hit else 1)
+"""
 
 
 def test_registry_modes_0600_0700(tmp_path: Path) -> None:

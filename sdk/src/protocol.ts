@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.77.0";
+export const PROTOCOL_VERSION = "1.79.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -9937,6 +9937,8 @@ export interface TerminalInterruptResult {
 
 /** `terminal.keys` params. Send named keys 30 ms apart (1.73.0). */
 export interface TerminalKeysParams {
+  /** When set, refuse if the terminal's state differs (1.79.0, atomic gate). */
+  expectState?: "idle" | "running" | "blocked" | null;
   /** Named keys, e.g. 'Enter'. */
   keys: string[];
   /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */

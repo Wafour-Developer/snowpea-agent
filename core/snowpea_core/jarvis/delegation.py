@@ -1030,13 +1030,7 @@ class DelegationEngine:
             row = db.execute(
                 "SELECT enabled, set_by FROM switches WHERE target = ?", (key,)
             ).fetchone()
-            if (
-                enabled
-                and by == "jarvis"
-                and row is not None
-                and not bool(row["enabled"])
-                and str(row["set_by"]) not in ("new", "fork", "migration")
-            ):
+            if enabled and by == "jarvis" and row is not None:
                 return False
             if row is not None and bool(row["enabled"]) == bool(enabled):
                 return False

@@ -23,7 +23,7 @@ import shutil
 import subprocess
 import sys
 import time
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -116,13 +116,7 @@ def build_parser() -> argparse.ArgumentParser:
     # Full screen is the default since 0.2.29; the flag stays so old scripts work.
     layout.add_argument("--fullscreen", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--home", default=None, help="override SNOWPEA_HOME")
-    parser.add_argument(
-        "--remote",
-        default=None,
-        metavar="[USER@]HOST",
-        help="work on another machine: its daemon runs the session, reached over ssh "
-        "(snowpea is installed there if it is missing; --cwd names a path on that machine)",
-    )
+    parser.add_argument("--remote", default=None, metavar="[USER@]HOST", help=argparse.SUPPRESS)
     parser.add_argument(
         "--docker",
         nargs="?",
@@ -308,38 +302,20 @@ def resolve_tui_command(
     )
 
 
-def launch_remote_tui(args: argparse.Namespace) -> int:
-    """``snowpea --remote host``: set the host up, tunnel to it, run the TUI against it."""
-    from snowpea_core.server.protocol import PROTOCOL_VERSION
+_REMOTE_REMOVED = (
+    "snowpea --remote was removed in 1.78.0; add a machine with "
+    "`snowpea machine add` and connect from the Machines UI"
+)
 
-    try:
-        command = resolve_tui_command()
-        target = remote.parse_target(args.remote)
-    except TuiNotFound as exc:
-        _err(str(exc))
-        return EXIT_USAGE
-    except remote.RemoteError as exc:
-        _err(str(exc))
-        return EXIT_USAGE
+REMOTE_UP_REMOVED_JSON = (
+    '{"event":"error","code":"removed","message":"snowpea remote up was removed in 1.78.0; '
+    'connect machines with machine.add / snowpea machine add"}'
+)
 
-    @contextlib.contextmanager
-    def open_session() -> Iterator[list[str]]:
-        with remote.RemoteSession(
-            target, local_protocol=PROTOCOL_VERSION, confirm=remote.ask_yes_no
-        ) as session:
-            session.prepare()
-            session.open_tunnel()
-            yield remote.tui_arguments(session, args.cwd)
 
-    # The remote daemon was updated and restarted (exit 75): ask it again where it is.
-    return remote.run_tui_loop(
-        command,
-        open_session,
-        mode=args.mode,
-        inline=bool(getattr(args, "inline", False)),
-        restart_code=TUI_RESTART_EXIT,
-        say=_err,
-    )
+def _exit_remote_up_removed() -> int:
+    print(REMOTE_UP_REMOVED_JSON, flush=True)
+    return 2
 
 
 def launch_sandbox_tui(args: argparse.Namespace) -> int:
@@ -712,9 +688,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     _configure_windows_stdio_encoding()
     words = list(sys.argv[1:] if argv is None else argv)
     if words[:2] == ["remote", "up"]:
-        from snowpea_core.cli.remote_up import main as remote_up_main
-
-        return remote_up_main(words[2:])
+        return _exit_remote_up_removed()
     args = parse_argv(argv)
 
     if args.version:
@@ -733,28 +707,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.docker is not None or args.remote or args.prompt is not None or args.subcommand
     ):
         _err("--session opens the TUI on a session of the local daemon; it does not combine "
-             "with --docker, --remote, -c or a subcommand")
+             "with --docker, -c or a subcommand")
+        return EXIT_USAGE
+
+    if args.remote:
+        _err(_REMOTE_REMOVED)
         return EXIT_USAGE
 
     if args.docker is not None or args.docker_volume or args.docker_keep:
         if args.docker is None:
             _err("--docker-volume and --docker-keep go with --docker")
             return EXIT_USAGE
-        if args.remote:
-            _err("--docker and --remote are different places to run the session; pick one")
-            return EXIT_USAGE
         if args.subcommand or args.prompt is not None:
             _err("--docker opens the interactive TUI in a sandbox container; it does not "
                  "combine with -c or a subcommand yet")
             return EXIT_USAGE
         return launch_sandbox_tui(args)
-
-    if args.remote:
-        if args.subcommand or args.prompt is not None:
-            _err("--remote opens the interactive TUI on another machine; it does not combine "
-                 "with -c or a subcommand yet")
-            return EXIT_USAGE
-        return launch_remote_tui(args)
 
     try:
         if args.subcommand == "init":

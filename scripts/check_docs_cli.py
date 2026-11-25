@@ -39,6 +39,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # the entry must be deleted.
 ALLOWLIST: dict[tuple[str, ...], str] = {}
 
+# Manual pages whose ``snowpea …`` invocations are skipped by the CLI check, each with
+# the story that removes the entry.  Empty: the remote pages no longer document the
+# removed commands (1.78.0 Machines), so every page is checked.
+CLI_CHECK_DEFER: dict[str, str] = {}
+
 # Shell words that may precede `snowpea` on a documented command line.
 COMMAND_PREFIXES = {"uv", "run", "sudo", "exec", "env", "time", "npx"}
 
@@ -373,6 +378,9 @@ def main() -> int:
             return 1
 
         for path in files:
+            rel = path.relative_to(REPO_ROOT).as_posix()
+            if rel in CLI_CHECK_DEFER:
+                continue
             text = path.read_text(encoding="utf-8")
             for start, info, body in iter_code_blocks(text):
                 if info not in SHELL_LANGUAGES:

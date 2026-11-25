@@ -10273,6 +10273,10 @@ class TerminalSendResult(Payload):
 class TerminalKeysParams(MachineScope):
     terminalId: str
     keys: list[str] = Field(min_length=1, max_length=64, description="Named keys, e.g. 'Enter'.")
+    expectState: Literal["idle", "running", "blocked"] | None = Field(
+        default=None,
+        description="When set, refuse if the terminal's state differs (1.79.0, atomic gate).",
+    )
 
 
 class TerminalWaitParams(MachineScope):

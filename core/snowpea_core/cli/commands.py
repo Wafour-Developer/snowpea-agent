@@ -2944,18 +2944,9 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     tools_list_parser = tools_sub.add_parser("list", help="list registered tools")
     tools_list_parser.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
 
-    remote_parser = sub.add_parser(
+    sub.add_parser(
         "remote",
-        help="connect to a remote or container daemon (`remote up`, JSON lines, no terminal UI)",
-    )
-    remote_sub = remote_parser.add_subparsers(dest="action", metavar="<action>")
-    from snowpea_core.cli.remote_up import add_arguments as add_remote_up_arguments
-
-    add_remote_up_arguments(
-        remote_sub.add_parser(
-            "up",
-            help="connect, then report the daemon's port and token as JSON lines on stdout",
-        )
+        help="(removed in 1.78.0) use `snowpea machine add` and the Machines UI instead",
     )
 
     from snowpea_core.cli import term as term_cli
@@ -3827,8 +3818,11 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
             save=bool(getattr(args, "web_save", False)),
         )
     if subcommand == "remote":
-        # ``remote up`` is routed before parsing (cli/main.py); this is a bare ``snowpea remote``.
-        return _fail("usage: snowpea remote up <[user@]host | --docker> --json", EXIT_USAGE)
+        return _fail(
+            "snowpea remote was removed in 1.78.0; use `snowpea machine add` and connect "
+            "from the Machines UI",
+            EXIT_USAGE,
+        )
     if subcommand == "term":
         from snowpea_core.cli import term as term_cli
 

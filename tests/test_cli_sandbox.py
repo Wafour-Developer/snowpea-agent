@@ -652,7 +652,6 @@ def test_docker_combinations_that_make_no_sense_are_usage_errors(
     argv: list[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(cli_main, "launch_sandbox_tui", lambda _a: pytest.fail("must not launch"))
-    monkeypatch.setattr(cli_main, "launch_remote_tui", lambda _a: pytest.fail("must not launch"))
     assert cli_main.main(argv) == EXIT_USAGE
 
 

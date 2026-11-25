@@ -16,13 +16,13 @@ from snowpea_core import __version__
 from snowpea_core.cli import remote
 from snowpea_core.cli.daemon_client import DaemonClient, DaemonInfo
 from snowpea_core.cli.remote import RemoteSession
-from snowpea_core.cli.remote_up import HostKeys, ssh_runner
 from snowpea_core.machines.proxy import (
     RELAY_PERSON_EVENTS,
     RELAY_SESSION_EVENTS,
     RELAY_TERMINAL_EVENTS,
 )
 from snowpea_core.machines.registry import MachineRegistry
+from snowpea_core.machines.ssh import HostKeys, ssh_runner
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import PROTOCOL_VERSION, MachineAsk, MachineRow
@@ -713,7 +713,11 @@ class MachineManager:
         return result
 
     async def jarvis_client(self, machine_id: str) -> DaemonClient:
-        """In-process proxy client for Jarvis (1.77.0, jarvisRemote); not an RPC connection."""
+        """In-process proxy client for Jarvis (1.77.0, jarvisRemote); not an RPC connection.
+
+        The hello carries no separate ``clientKind`` yet (L3): local gates and Jarvis's
+        own rules enforce safety; newer remotes may recognise a dedicated jarvis-proxy kind.
+        """
         live = self._live.get(machine_id)
         if live is None or live.status != "connected":
             raise RuntimeError("machine is not connected")

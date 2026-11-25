@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from snowpea_core.machines.gates import (
     ensure_machine_proxy_async,
+    ensure_remote_session_prompt_cap,
     filter_proxy_result,
     proxy_params_dump,
     run_proxy_gates,
@@ -195,6 +196,12 @@ async def proxy_call(
         client=client,
         terminal_id=str(terminal_id) if terminal_id else None,
     )
+    if method in ("session.prompt", "session.steer"):
+        session_id = str(getattr(validated, "sessionId", "") or "")
+        if session_id:
+            await ensure_remote_session_prompt_cap(
+                conn, core, machine_id, session_id, client=client
+            )
     clean = proxy_params_dump(conn, core, validated, method=method)
     result = await manager.proxy_call(machine_id, method, clean, conn)
     result = await filter_proxy_result(conn, core, method, result)
@@ -228,8 +235,20 @@ async def proxy_call(
     # or steer here is the person's.)
     if method == "terminal.write" and bool(getattr(validated, "human", False)):
         await _note_person_typed(conn, core, machine_id, str(getattr(validated, "terminalId", "")))
+    elif method in ("terminal.send", "terminal.keys"):
+        await _note_person_typed(conn, core, machine_id, str(getattr(validated, "terminalId", "")))
     elif method in ("session.prompt", "session.steer"):
         await _note_person_typed(conn, core, machine_id, str(getattr(validated, "sessionId", "")))
+    elif method == "external.send":
+        from snowpea_core.machines.jarvis_remote import external_local_key
+
+        ref = getattr(validated, "ref", None)
+        cli = getattr(ref, "cli", None) if ref is not None else None
+        ext_id = getattr(ref, "id", None) if ref is not None else None
+        if cli and ext_id:
+            await _note_person_typed(
+                conn, core, machine_id, external_local_key(str(cli), str(ext_id))
+            )
     return result
 
 

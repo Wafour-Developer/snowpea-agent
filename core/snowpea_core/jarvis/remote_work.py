@@ -195,10 +195,11 @@ async def remote_session_prompt(
     if when_busy:
         params["whenBusy"] = when_busy
     sent = await _call(service, target.machine_id, "session.prompt", params)
+    lbl = _label(service, target.machine_id or "")
     service.record_decision(
         kind="prompt",
         decided_by="jarvis",
-        summary=f"asked {target.title or target.session_id}: {text}"[:300],
+        summary=f"[{lbl}] asked {target.title or target.session_id}: {text}"[:300],
         session_id=target.session_id,
         project=None,
         importance="normal",
@@ -226,10 +227,11 @@ async def remote_session_steer(
         "session.steer",
         {"sessionId": target.remote_id, "text": PROMPT_PREFIX + text},
     )
+    lbl = _label(service, target.machine_id or "")
     service.record_decision(
         kind="prompt",
         decided_by="jarvis",
-        summary=f"steered {target.title or target.session_id}: {text}"[:300],
+        summary=f"[{lbl}] steered {target.title or target.session_id}: {text}"[:300],
         session_id=target.session_id,
         project=None,
         importance="normal",
@@ -247,10 +249,12 @@ async def remote_session_interrupt(
     await _call(
         service, target.machine_id, "session.interrupt", {"sessionId": target.remote_id}
     )
+    lbl = _label(service, target.machine_id or "")
     service.record_decision(
         kind="interrupt",
         decided_by="jarvis",
-        summary=f"stopped {target.title or target.session_id}" + (f": {reason}" if reason else ""),
+        summary=f"[{lbl}] stopped {target.title or target.session_id}"
+        + (f": {reason}" if reason else ""),
         session_id=target.session_id,
         project=None,
         reason=reason,
@@ -313,10 +317,11 @@ async def remote_external_send(
         "external.send",
         {"ref": ref, "text": PROMPT_PREFIX + text},
     )
+    lbl = _label(service, found.machine_id or "")
     service.record_decision(
         kind="prompt",
         decided_by="jarvis",
-        summary=f"asked {found.title or found.session_id}: {text}"[:300],
+        summary=f"[{lbl}] asked {found.title or found.session_id}: {text}"[:300],
         session_id=found.session_id,
         project=None,
         importance="normal",
@@ -337,10 +342,12 @@ async def remote_external_interrupt(
 
     assert found.machine_id and found.remote_id
     await _call(service, found.machine_id, "external.interrupt", {"ref": _ref_of(found)})
+    lbl = _label(service, found.machine_id or "")
     service.record_decision(
         kind="interrupt",
         decided_by="jarvis",
-        summary=f"stopped {found.title or found.session_id}" + (f": {reason}" if reason else ""),
+        summary=f"[{lbl}] stopped {found.title or found.session_id}"
+        + (f": {reason}" if reason else ""),
         session_id=found.session_id,
         project=None,
         reason=reason,

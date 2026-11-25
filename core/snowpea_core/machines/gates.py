@@ -213,8 +213,80 @@ def gate_terminal_close(conn: Any, core: Any, _params: Any, _machine_id: str) ->
     _tunnel_gate(conn, core, kind="other")
 
 
+def _session_mode_from_cache(core: Any, machine_id: str, session_id: str) -> str:
+    from snowpea_core.machines.jarvis_remote import qualify
+
+    cache = getattr(getattr(core, "machines", None), "_jarvis_cache", None)
+    row = cache.session_any(qualify(machine_id, session_id)) if cache is not None else None
+    if row is None:
+        raise RpcError(
+            errors.UNAVAILABLE,
+            "could not verify the remote session mode",
+            {"reason": "remote_session_unknown"},
+        )
+    mode = row.mode or "accept"
+    if mode == "plan" and getattr(row, "auto_after_plan", False):
+        return "auto"
+    return str(mode)
+
+
+def gate_session_set_mode(conn: Any, core: Any, params: Any, machine_id: str) -> None:
+    from snowpea_core.server.person_gate import connection_kind
+    from snowpea_core.session.mode_guard import check_remote_max, rank, remote_max
+
+    if connection_kind(conn) != "remote_login":
+        return
+    wanted = getattr(params, "mode", None) or "accept"
+    check_remote_max(
+        "remote_login", wanted, core.settings, "raising a remote session", current="accept"
+    )
+    limit = remote_max(core.settings)
+    if rank(wanted) > rank(limit):
+        raise RpcError(
+            errors.JARVIS_PERSON_ONLY,
+            f"raising the remote session to {wanted} is above web.remote.maxMode ({limit})",
+            {"reason": "mode_raise", "max": limit},
+        )
+    if getattr(params, "actor", None):
+        raise RpcError(
+            errors.JARVIS_PERSON_ONLY,
+            "a remote sign-in may not set actor on a remote session",
+            {"reason": "person_only"},
+        )
+
+
+def gate_session_prompt_or_steer(conn: Any, core: Any, params: Any, machine_id: str) -> None:
+    from snowpea_core.server.person_gate import connection_kind
+
+    if connection_kind(conn) != "remote_login":
+        return
+    sid = str(getattr(params, "sessionId", "") or "")
+    if not sid:
+        return
+    # Mode cap for remote logins is enforced from a fresh ``session.list`` in
+    # :func:`ensure_remote_session_prompt_cap` (Jarvis off must not block this).
+
+
+def gate_session_prompt(conn: Any, core: Any, params: Any, machine_id: str) -> None:
+    gate_session_prompt_or_steer(conn, core, params, machine_id)
+
+
+def gate_session_steer(conn: Any, core: Any, params: Any, machine_id: str) -> None:
+    gate_session_prompt_or_steer(conn, core, params, machine_id)
+
+
+def gate_jarvis_switch(conn: Any, core: Any, params: Any, _machine_id: str) -> None:
+    from snowpea_core.server.person_gate import connection_kind, require_person
+
+    if connection_kind(conn) == "remote_login":
+        require_person(conn, "change a Jarvis switch on a remote machine")
+
+
 _GATES: dict[str, Any] = {
     "session.create": gate_session_create,
+    "session.prompt": gate_session_prompt,
+    "session.steer": gate_session_steer,
+    "session.setMode": gate_session_set_mode,
     "external.create": gate_external_create,
     "external.open": gate_external_open,
     "terminal.create": gate_terminal_create,
@@ -225,6 +297,8 @@ _GATES: dict[str, Any] = {
     "terminal.interrupt": _gate_terminal_io("terminal.interrupt"),
     "terminal.resize": gate_terminal_resize,
     "terminal.close": gate_terminal_close,
+    "jarvis.session.set": gate_jarvis_switch,
+    "terminal.setJarvis": gate_jarvis_switch,
 }
 
 
@@ -251,6 +325,14 @@ def proxy_params_dump(
         if chosen == "unrestricted" or rank(chosen) > rank(limit):
             chosen = limit
         data["mode"] = chosen
+        return data
+    if method == "session.setMode" and connection_kind(conn) == "remote_login":
+        limit = remote_max(core.settings)
+        chosen = str(data.get("mode") or "accept")
+        if rank(chosen) > rank(limit):
+            chosen = limit
+        data["mode"] = chosen
+        data.pop("actor", None)
         return data
     if method in ("external.create", "external.open"):
         chosen = data.get("mode")
@@ -358,7 +440,12 @@ PROXY_PARAM_CLASSIFICATION: dict[str, dict[str, str]] = {
     },
     "terminal.detach": {"machine": "harmless", "terminalId": "harmless"},
     "terminal.interrupt": {"machine": "harmless", "terminalId": "gated"},
-    "terminal.keys": {"keys": "gated", "machine": "harmless", "terminalId": "gated"},
+    "terminal.keys": {
+        "keys": "gated",
+        "machine": "harmless",
+        "terminalId": "gated",
+        "expectState": "harmless",
+    },
     "terminal.list": {"aliveOnly": "harmless", "machine": "harmless", "parent": "harmless"},
     "terminal.profiles": {"machine": "harmless"},
     "terminal.read": {"lines": "harmless", "machine": "harmless", "terminalId": "harmless"},
@@ -538,6 +625,59 @@ async def filter_proxy_result(
     return result
 
 
+async def ensure_remote_session_prompt_cap(
+    conn: Any,
+    core: Any,
+    machine_id: str,
+    session_id: str,
+    *,
+    client: Any,
+) -> None:
+    """Fresh remote session mode for a remote-login prompt or steer (H1)."""
+    from snowpea_core.server.person_gate import connection_kind
+    from snowpea_core.session.mode_guard import check_remote_max
+
+    if connection_kind(conn) != "remote_login":
+        return
+    if client is None:
+        raise RpcError(
+            errors.UNAVAILABLE,
+            "could not verify the remote session mode",
+            {"reason": "remote_session_unknown"},
+        )
+    try:
+        listed = await client.call("session.list", {})
+    except Exception:
+        raise RpcError(
+            errors.UNAVAILABLE,
+            "could not verify the remote session mode",
+            {"reason": "remote_session_unknown"},
+        ) from None
+    mode: str | None = None
+    auto_after_plan = False
+    for item in listed.get("sessions") or []:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("sessionId")) != session_id:
+            continue
+        mode = str(item.get("mode") or "accept")
+        auto_after_plan = bool(item.get("autoAfterPlan"))
+        if not auto_after_plan:
+            jarvis = item.get("jarvis") or {}
+            if isinstance(jarvis, dict):
+                auto_after_plan = bool(jarvis.get("autoAfterPlan"))
+        break
+    if mode is None:
+        raise RpcError(
+            errors.UNAVAILABLE,
+            "could not verify the remote session mode",
+            {"reason": "remote_session_unknown"},
+        )
+    if mode == "plan" and auto_after_plan:
+        mode = "auto"
+    check_remote_max("remote_login", mode, core.settings, "prompting a remote session")
+
+
 async def ensure_machine_proxy_async(
     method: str,
     conn: Any,
@@ -588,15 +728,19 @@ def gate_jarvis_machine_call(
     term_id = getattr(params, "terminalId", None)
     manager = getattr(core, "machines", None)
     cache = getattr(manager, "_jarvis_cache", None) if manager is not None else None
-    write_methods = {
+    terminal_methods = {
         "terminal.send",
         "terminal.keys",
         "terminal.interrupt",
         "terminal.write",
         "terminal.close",
+        "terminal.read",
+        "terminal.wait",
+        "terminal.attach",
+        "terminal.resize",
     }
-    if term_id and method in write_methods:
-        if cache is not None and not cache.jarvis_on(machine_id, str(term_id)):
+    if term_id and method in terminal_methods:
+        if cache is None or not cache.jarvis_on(machine_id, str(term_id)):
             raise RpcError(errors.NOT_FOUND, "not found")
     if method == "terminal.create" and getattr(params, "profile", None) == "snowpea":
         raise RpcError(

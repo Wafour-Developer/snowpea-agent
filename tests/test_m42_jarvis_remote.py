@@ -1,4 +1,4 @@
-"""M42: Jarvis manages remote machines (1.77.0, jarvisRemote)."""
+"""M42: Jarvis manages remote machines (1.78.0, jarvisRemote)."""
 
 # ruff: noqa: E402, I001
 
@@ -18,6 +18,8 @@ from _support import connect
 from test_jarvis_core import FakeClock
 
 from snowpea_core.jarvis.delegation import Caller
+
+PERSON = Caller(kind="connection", surface="ide")
 
 from snowpea_core.cli.daemon_client import DaemonInfo
 from snowpea_core.machines.gates import gate_jarvis_machine_call, run_jarvis_proxy_gates
@@ -134,6 +136,19 @@ async def test_remote_wake_names_machine(daemon_pair) -> None:
             "terminal.status",
             {"terminalId": term_id, "status": {"state": "blocked", "kind": "permission"}},
         )
+        from snowpea_core.jarvis.delegation import Caller
+
+        PERSON = Caller(kind="connection", surface="ide")
+        local.core.jarvis.engine.set_grant(
+            "session", delegation_key(mid, term_id), "full", caller=PERSON
+        )
+        relay.states.clear()
+        intake._routed.clear()
+        await relay.handle(
+            local.core,
+            "terminal.status",
+            {"terminalId": term_id, "status": {"state": "blocked", "kind": "permission"}},
+        )
         assert intake._routed
         assert "Work box" in intake._routed[-1].text
         assert intake._routed[-1].session_id == delegation_key(mid, term_id)
@@ -208,7 +223,7 @@ def test_jarvis_proxy_refuses_trust_dangerous_and_snowpea_tui() -> None:
 
 
 @pytest.mark.asyncio
-async def test_remote_terminal_send_records_machine_in_ledger(daemon_pair) -> None:
+async def test_remote_terminal_send_refuses_shell(daemon_pair) -> None:
     local, remote = daemon_pair
     mid = await _pair_connected(local, remote)
     async with aiohttp.ClientSession() as http:
@@ -223,11 +238,8 @@ async def test_remote_terminal_send_records_machine_in_ledger(daemon_pair) -> No
             "terminal_send",
             {"id": qid, "text": "echo hi"},
         )
-        assert sent.ok, sent.error
-        ledger = Path(local.core.paths.home) / "jarvis" / "ledger.jsonl"
-        lines = [json.loads(line) for line in ledger.read_text().splitlines() if line.strip()]
-        hosts = [e.get("hostToolsFrom") or "" for e in lines if e["type"] == "access"]
-        assert any("machine:Work box" in h for h in hosts)
+        assert not sent.ok
+        assert "shell" in (sent.error or "").lower()
         await rclient.stop()
 
 
@@ -249,11 +261,8 @@ async def test_reconnect_resubscribes_jarvis_relay(daemon_pair) -> None:
 def test_protocol_advertises_jarvis_remote() -> None:
     from snowpea_core.server import protocol
 
-    assert protocol.PROTOCOL_VERSION == "1.77.0"
+    assert protocol.PROTOCOL_VERSION == "1.79.0"
     assert "jarvisRemote" in protocol.CAPABILITIES
-
-
-PERSON = Caller(kind="connection", surface="ide")
 
 
 @pytest.mark.asyncio
@@ -335,19 +344,30 @@ async def test_jarvis_created_terminal_starts_with_switch_on(tmp_path: Path) -> 
     from snowpea_core.jarvis.terminals import key_of
 
     jarvis_dir = tmp_path / "JarvisFolder"
-    daemon = await make_daemon(tmp_path / "home", {"jarvis": {"folder": str(jarvis_dir)}})
+    project = tmp_path / "p"
+    project.mkdir()
+    (project / ".snowpea").mkdir()
+    (project / ".snowpea" / "settings.json").write_text('{"jarvis":{"expose":true}}')
+    daemon = await make_daemon(
+        tmp_path / "home",
+        {"jarvis": {"enabled": True, "folder": str(jarvis_dir)}},
+    )
     try:
-        async with aiohttp.ClientSession() as http:
-            client = await connect(http, daemon)
-            await client.ok("jarvis.enable")
-            created = await client.ok(
-                "terminal.create",
-                {"profile": "shell", "noProject": True, "parent": "jarvis"},
-            )
-            tid = created["terminal"]["terminalId"]
-            key = key_of(daemon.core.terminals.get(tid))
-            assert daemon.core.jarvis.engine.switch(key)
-            await client.stop()
+        await daemon.core.jarvis.enable()
+        from snowpea_core.tools.registry import ToolContext
+
+        jarvis = daemon.core.jarvis.session()
+        assert jarvis is not None
+        jarvis.current_turn = "t"
+        jarvis.turn_origins["t"] = "human"
+        ctx = ToolContext(session=jarvis, core=daemon.core, backend=None)  # type: ignore[arg-type]
+        from snowpea_core.jarvis.terminals import terminal_create
+
+        created = await terminal_create(ctx, {"profile": "codex", "project": str(project)})
+        assert created.ok, created.error
+        tid = str((created.meta or {}).get("terminalId") or "")
+        key = key_of(daemon.core.terminals.get(tid))
+        assert daemon.core.jarvis.engine.switch(key)
     finally:
         await daemon.stop()
 
@@ -471,6 +491,7 @@ async def test_remote_session_wake_names_machine(daemon_pair) -> None:
             cache=local.core.machines._jarvis_cache,  # noqa: SLF001
         )
         await relay.refresh(local.core)
+        local.core.jarvis.engine.set_grant("session", key, "full", caller=PERSON)
         intake._routed.clear()
 
         async def changed(status: str) -> None:
@@ -664,6 +685,7 @@ async def test_remote_external_session_visibility_tools_and_wake(daemon_pair, mo
             cache=local.core.machines._jarvis_cache,  # noqa: SLF001
         )
         await relay.refresh(local.core)
+        local.core.jarvis.engine.set_grant("session", qid, "full", caller=PERSON)
         intake._routed.clear()
         for status in ("running", "idle"):
             await relay.handle(local.core, "external.state", {"ref": ref, "status": status})

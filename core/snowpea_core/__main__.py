@@ -107,11 +107,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         return holder_main()
     if raw[:2] == ["remote", "up"]:
-        # ``snowpea-core remote up …``: the bundled core has no ``snowpea`` console script,
-        # and the snowpea browser runs this entry (JSON lines on stdout, no TUI).
-        from snowpea_core.cli.remote_up import main as remote_up_main
-
-        return remote_up_main(raw[2:])
+        print(
+            '{"event":"error","code":"removed","message":"snowpea remote up was removed in 1.78.0; '
+            'connect machines with machine.add / snowpea machine add"}',
+            flush=True,
+        )
+        return 2
     args = build_parser().parse_args(raw)
     if args.home:
         # Everything that resolves the home lazily — the config-write guard in

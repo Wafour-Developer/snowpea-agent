@@ -368,14 +368,6 @@ async def create_handler(conn: RpcConnection, params: TerminalCreateParams,
     if params.prompt and not spec.prompt:
         spec.prompt = params.prompt
     info = await manager.create(spec)
-    jarvis = getattr(core, "jarvis", None)
-    if jarvis is not None and spec.parent == "jarvis":
-        # Terminals Jarvis creates start with the switch on (1.77.0); all others off.
-        from snowpea_core.jarvis.terminals import key_of
-
-        with contextlib.suppress(Exception):
-            term = manager.get(info["terminalId"])
-            jarvis.engine.set_switch(key_of(term), True, by="jarvis", quiet=True)
     return {"terminal": info}
 
 
@@ -454,11 +446,57 @@ async def send_handler(conn: RpcConnection, params: TerminalSendParams,
                                            submit=params.submit)
 
 
+def _expect_state_guard(term: Any, expect: str):
+    """Re-check terminal state under the agent lock (atomic ``expectState`` gate)."""
+    from snowpea_core.terminal.input import GateRefused
+
+    def guard() -> None:
+        state = str(term.status.status.state)
+        if expect == "idle":
+            if state == "blocked":
+                raise GateRefused("expect_state", "terminal is blocked on a prompt")
+        elif expect == "running":
+            if state != "working":
+                raise GateRefused("expect_state", "terminal is not working")
+        elif expect == "blocked":
+            if state != "blocked":
+                raise GateRefused("expect_state", "terminal is not blocked on a prompt")
+            if str(term.status.status.kind or "") != "permission":
+                raise GateRefused(
+                    "expect_state",
+                    "terminal is not blocked on a permission prompt",
+                )
+
+    return guard
+
+
 async def keys_handler(conn: RpcConnection, params: TerminalKeysParams,
                        core: Core) -> dict[str, Any]:
     _tunnel_gate(conn, core, kind="write")
     _snowpea_gate(conn, core, params.terminalId)
-    await ensure_manager(core).keys(params.terminalId, list(params.keys))
+    manager = ensure_manager(core)
+    from snowpea_core.terminal.manager import TerminalError
+
+    guard = None
+    if params.expectState is not None:
+        await manager.settle(params.terminalId)
+        term = manager.get(params.terminalId)
+        guard = _expect_state_guard(term, params.expectState)
+    try:
+        await manager.keys(params.terminalId, list(params.keys), guard=guard)
+    except TerminalError as exc:
+        if params.expectState is not None:
+            term = manager.get(params.terminalId)
+            raise RpcError(
+                errors.INVALID_PARAMS,
+                str(exc),
+                {
+                    "reason": "expect_state",
+                    "state": str(term.status.status.state),
+                    "expectState": params.expectState,
+                },
+            ) from exc
+        raise
     return {"ok": True}
 
 

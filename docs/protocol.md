@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.77.0` (semver)
+- **Protocol version:** `1.79.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.77.0"
+    "protocolVersion": "1.79.0"
   }
 }
 ```
@@ -5456,6 +5456,7 @@ Send named keys 30 ms apart (1.73.0).
 
 | field | type | required | description |
 |---|---|---|---|
+| `expectState` | `"idle" \| "running" \| "blocked" \| null` | no | When set, refuse if the terminal's state differs (1.79.0, atomic gate). |
 | `keys` | `string[]` | yes | Named keys, e.g. 'Enter'. |
 | `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 | `terminalId` | `string` | yes |  |

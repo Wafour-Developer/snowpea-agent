@@ -439,6 +439,27 @@ def _authorized(
 
 
 def _not_paused(service: JarvisService, session_id: str) -> None:
+    from snowpea_core.jarvis.delegation import parse_time
+    from snowpea_core.machines.jarvis_remote import _cache, split_qualified_id
+
+    mid, _local = split_qualified_id(session_id)
+    if mid:
+        cache = _cache(service.core)
+        if cache is not None:
+            row = (
+                cache.session_any(session_id)
+                or cache.get(session_id)
+                or cache.external_any(session_id)
+            )
+            if row is not None:
+                until = getattr(row, "paused_until", None) or getattr(
+                    row, "jarvis_paused_until", None
+                )
+                if until and parse_time(str(until)) > service.engine.now():
+                    raise Refused(
+                        "the person is working in that session on the remote machine; leave it "
+                        "to them until they hand it back"
+                    )
     state = service.engine.pause_state(session_id)
     if state.paused:
         raise Refused(

@@ -1436,6 +1436,8 @@ class JarvisService:
                 return
             if self.in_jarvis_family(session) or is_task_worker(session):
                 return
+            if getattr(session, "origin_surface", None) == "jarvis":
+                return  # Jarvis tools store the switch (by=jarvis) right after create
             if getattr(session, "kind", "chat") == "subagent":
                 return  # follows its parent at every look
             parent = getattr(session, "parent_session_id", None)
