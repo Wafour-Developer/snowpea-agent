@@ -169,14 +169,26 @@ def prepare_ide_worktree(ide_main: Path, wt: Path, core_wt: Path) -> None:
             raise RuntimeError(
                 f"desktop build failed in {wt}:\n{result.stdout[-2000:]}{result.stderr[-2000:]}"
             )
-    # The remote sign-in specs skip themselves without the web build.
+    # The web specs (loopback web approvals, remote sign-in) skip themselves without the web build.
     if (wt / "vite.web.config.ts").exists() and not (wt / "out" / "web" / "index.html").exists():
+        # The tag's config aliases the SDK as ../snowpea relative to the worktree, which does
+        # not exist under branch_job/: point the alias at this pair's core worktree instead.
+        wrapper = wt / "vite.web.compat.config.ts"
+        protocol_ts = json.dumps(str(core_wt / "sdk" / "src" / "protocol.ts"))
+        wrapper.write_text(
+            'import { mergeConfig } from "vite";\n'
+            'import base from "./vite.web.config";\n'
+            "export default mergeConfig(base, "
+            f'{{ resolve: {{ alias: {{ "@snowpea/sdk": {protocol_ts} }} }} }});\n'
+        )
         result = run(
-            [str(wt / "node_modules" / ".bin" / "vite"), "build", "--config", "vite.web.config.ts"],
+            [str(wt / "node_modules" / ".bin" / "vite"), "build", "--config", wrapper.name],
             cwd=wt,
         )
         if result.returncode != 0:
-            raise RuntimeError(f"web build failed in {wt}:\n{result.stdout[-1500:]}")
+            raise RuntimeError(
+                f"web build failed in {wt}:\n{result.stdout[-1500:]}{result.stderr[-1500:]}"
+            )
 
 
 # ---------------------------------------------------------------------------
