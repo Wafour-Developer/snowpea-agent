@@ -33831,7 +33831,7 @@ import { basename as basename2, isAbsolute, join as join2, resolve } from "node:
 var import_react64 = __toESM(require_react(), 1);
 
 // ../sdk/dist/protocol.js
-var PROTOCOL_VERSION = "1.70.0";
+var PROTOCOL_VERSION = "1.79.0";
 var WS_PATH = "/ws";
 
 // ../sdk/dist/client.js
@@ -39474,9 +39474,9 @@ var ROLE = {
   event: ["event", "\uC774\uBCA4\uD2B8"]
 };
 function fit2(line, width) {
-  const clean = sanitizeText(line).replace(/\s+/g, " ").trim();
-  if (width <= 1) return clean.slice(0, Math.max(0, width));
-  return clean.length > width ? `${clean.slice(0, width - 1)}\u2026` : clean;
+  const clean2 = sanitizeText(line).replace(/\s+/g, " ").trim();
+  if (width <= 1) return clean2.slice(0, Math.max(0, width));
+  return clean2.length > width ? `${clean2.slice(0, width - 1)}\u2026` : clean2;
 }
 function kb(bytes) {
   return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -44821,7 +44821,7 @@ function FeedbackScreen({
 var import_react42 = __toESM(require_react(), 1);
 
 // src/version.ts
-var TUI_VERSION = "0.2.103";
+var TUI_VERSION = "0.2.104";
 
 // src/hooks/useFeedback.ts
 function useFeedback(deps) {
@@ -49493,6 +49493,8 @@ function App2({
   provider,
   model,
   initialDelegation,
+  attached,
+  osc,
   fullscreen = false,
   onRestart,
   history,
@@ -49667,6 +49669,20 @@ function App2({
       setSkillRows([]);
     });
   }, [client]);
+  (0, import_react64.useEffect)(() => {
+    if (!attached) return;
+    if (attached.events.length > 0) dispatch({ type: "session/replay", events: attached.events });
+    if (typeof attached.mode === "string") {
+      dispatch({ type: "mode", mode: attached.mode, autoAfterPlan: attached.autoAfterPlan === true });
+    }
+  }, []);
+  (0, import_react64.useEffect)(() => {
+    osc?.update({
+      turnActive: state2.turnActive,
+      permissionPending: state2.pendingApproval !== null,
+      questionPending: state2.pendingQuestion !== null
+    });
+  }, [osc, state2.turnActive, state2.pendingApproval, state2.pendingQuestion]);
   const refreshApprovals = (0, import_react64.useCallback)(() => {
     void client.listApprovals().then((result) => dispatch({ type: "approval/list", requests: result.requests ?? [] })).catch(() => {
     });
@@ -50601,7 +50617,9 @@ function App2({
     const settings = client.call("settings.get", { scope: "global" }).catch(() => ({ settings: {} }));
     const projectSettings = client.call("settings.get", { scope: "project", workdir }).catch(() => ({ settings: {} }));
     const discovered = client.call("provider.list", {}).then(async (result) => {
-      const providers2 = (result?.providers ?? []).filter((provider2) => provider2.configured);
+      const providers2 = (result?.providers ?? []).filter(
+        (provider2) => provider2.configured && provider2.verify?.state !== "invalid"
+      );
       const listings = await Promise.all(
         providers2.map(
           (provider2) => client.call("provider.models", { vendor: provider2.vendor }).catch(() => ({
@@ -52019,6 +52037,50 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
   ] });
 }
 
+// src/util/osc-status.ts
+function clean(value) {
+  return value.replace(/[^A-Za-z0-9._\-]/g, "_");
+}
+function deriveStatus(input, after) {
+  if (input.permissionPending) return { state: "blocked", kind: "permission" };
+  if (input.questionPending) return { state: "blocked", kind: "question" };
+  if (input.turnActive) return { state: "working" };
+  if (after && (after.state === "working" || after.state === "blocked" || after.state === "done")) {
+    return { state: "done" };
+  }
+  return { state: "idle" };
+}
+function oscSequence(status) {
+  const parts = [`state=${clean(status.state)}`];
+  if (status.kind) parts.push(`kind=${clean(status.kind)}`);
+  parts.push("app=snowpea");
+  return `\x1B]7501;${parts.join(":")}\x07`;
+}
+function oscEnabled(stdout, env3 = process.env) {
+  if (!stdout.isTTY) return false;
+  return Boolean(env3.SNOWPEA_TERMINAL_ID) || env3.SNOWPEA_OSC_STATUS === "1";
+}
+var OscEmitter = class {
+  constructor(write, enabled) {
+    this.write = write;
+    this.enabled = enabled;
+  }
+  last = null;
+  update(input) {
+    if (!this.enabled) return;
+    const next = deriveStatus(input, this.last);
+    if (this.last && this.last.state === next.state && this.last.kind === next.kind) return;
+    this.last = next;
+    this.write(oscSequence(next));
+  }
+  /** `state=clear` on exit; safe to call twice. */
+  clear() {
+    if (!this.enabled || this.last?.state === "clear") return;
+    this.last = { state: "clear" };
+    this.write(oscSequence(this.last));
+  }
+};
+
 // src/util/clipboard.ts
 var CLIPBOARD_COMMANDS = [
   {
@@ -52571,8 +52633,9 @@ function parseArgs(argv, cwd2 = process.cwd(), env3 = process.env) {
   if (!portRaw || !Number.isInteger(port) || port <= 0) {
     throw new Error("--port <number> is required");
   }
-  const token = values.get("token");
-  if (!token) throw new Error("--token <token> is required");
+  const token = values.get("token") || env3.SNOWPEA_TUI_TOKEN;
+  delete env3.SNOWPEA_TUI_TOKEN;
+  if (!token) throw new Error("--token <token> (or SNOWPEA_TUI_TOKEN) is required");
   const modeRaw = values.get("mode");
   if (modeRaw !== void 0 && !MODES.includes(modeRaw)) {
     throw new Error(`--mode must be one of ${MODES.join("|")}`);
@@ -52589,7 +52652,8 @@ function parseArgs(argv, cwd2 = process.cwd(), env3 = process.env) {
     cwd: values.get("cwd") || cwd2,
     remote: values.get("remote") || void 0,
     start: startRaw,
-    fullscreen: !inlineRequested
+    fullscreen: !inlineRequested,
+    session: values.get("session") || void 0
   };
 }
 function frameStdout(stdout, writer) {
@@ -52679,6 +52743,30 @@ var spawner = {
     }
   }
 };
+var AttachError = class extends Error {
+};
+async function attachSession(client, id) {
+  let result;
+  try {
+    result = await client.call("session.resume", { sessionId: id, afterSeq: 0 });
+  } catch (error) {
+    const raw = error;
+    if (!raw || raw.code === void 0 && raw.data === void 0) throw error;
+    throw new AttachError(`session ${id} not found or cannot be resumed: ${rpcErrorText(error)}`);
+  }
+  if (!result || typeof result !== "object") {
+    throw new AttachError(`session ${id} not found`);
+  }
+  return {
+    sessionId: id,
+    attached: {
+      events: Array.isArray(result.events) ? result.events : [],
+      mode: typeof result.mode === "string" ? result.mode : void 0,
+      autoAfterPlan: result.autoAfterPlan === true,
+      delegation: result.delegation === true
+    }
+  };
+}
 async function main(argv = process.argv.slice(2)) {
   let args;
   try {
@@ -52696,14 +52784,26 @@ async function main(argv = process.argv.slice(2)) {
   });
   let sessionId;
   let delegation = false;
+  let attached;
   try {
     await client.connect();
-    ({ sessionId, delegation } = await client.createSessionInfo({
-      workdir: args.cwd,
-      mode: args.mode,
-      originSurface: "tui"
-    }));
+    if (args.session) {
+      ({ sessionId, attached } = await attachSession(client, args.session));
+      delegation = attached?.delegation === true;
+    } else {
+      ({ sessionId, delegation } = await client.createSessionInfo({
+        workdir: args.cwd,
+        mode: args.mode,
+        originSurface: "tui"
+      }));
+    }
   } catch (error) {
+    if (error instanceof AttachError) {
+      process.stderr.write(`snowpea-tui: ${error.message}
+`);
+      await client.close().catch(() => void 0);
+      return 1;
+    }
     process.stderr.write(
       rpcCode(error) === "jarvis_person_only" ? `snowpea-tui: ${rpcErrorText(error)}
 ` : `snowpea-tui: cannot connect to daemon: ${error.message}
@@ -52746,6 +52846,15 @@ async function main(argv = process.argv.slice(2)) {
   );
   const localAudio = createLocalAudio(spawner, process.platform);
   const recordingPath = join2(dir, "tmp", `recording-${Date.now()}.wav`);
+  const osc = new OscEmitter(
+    (chunk) => {
+      try {
+        process.stdout.write(chunk);
+      } catch {
+      }
+    },
+    oscEnabled(process.stdout)
+  );
   splitKeypresses(process.stdin);
   let restart = false;
   const instance = render_default(
@@ -52755,6 +52864,8 @@ async function main(argv = process.argv.slice(2)) {
         client,
         sessionId,
         initialDelegation: delegation,
+        attached,
+        osc,
         mode: args.mode ?? "accept",
         workdir: args.cwd,
         remote: args.remote,
@@ -52797,7 +52908,8 @@ async function main(argv = process.argv.slice(2)) {
   try {
     await instance.waitUntilExit();
   } finally {
-    await client.closeSession(sessionId).catch(() => void 0);
+    osc.clear();
+    if (!args.session) await client.closeSession(sessionId).catch(() => void 0);
     await client.close().catch(() => void 0);
     screen?.restore();
   }
@@ -52817,7 +52929,9 @@ if (isDirectRun) {
   );
 }
 export {
+  AttachError,
   RESTART_EXIT_CODE,
+  attachSession,
   commandRunner,
   createProbe,
   fileStore,
