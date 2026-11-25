@@ -37,6 +37,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from snowpea_core.tools.asks_user import parse as parse_asks_user
 from snowpea_core.tools.registry import ProgressEmitter, Tool, ToolContext, ToolResult
 
 if TYPE_CHECKING:
@@ -318,6 +319,7 @@ class HostTools:
                     helpers=helpers,
                     manual=str(spec.get("description") or name) if short else None,
                     sections=sections,
+                    asks_user=parse_asks_user(spec.get("asksUser")),
                 )
             )
         host = self._hosts.get(conn.surface_id)

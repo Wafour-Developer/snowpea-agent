@@ -159,6 +159,8 @@ class Tool:
     #: served by ``tool_help``.
     manual: str | None = None
     sections: dict[str, str] | None = None
+    #: Host tools only (1.80.0): whether the tool asks the person itself.
+    asks_user: str = "never"
 
     def info(self) -> ToolInfo:
         # ``mcp:<server>`` is the source an MCP tool is registered with, so the
@@ -316,7 +318,9 @@ class ToolRegistry:
 
     def all_specs(self, session: Any | None = None) -> ToolSpecs:
         """Every active tool, deferred ones included — what ``tool_search`` searches."""
-        return [tool.spec() for tool in self.active(session)]
+        from snowpea_core.tools import asks_user as asks_user_mod
+
+        return asks_user_mod.stamp_tools(self.active(session), session, self.settings)
 
     def specs(self, session: Any | None = None) -> ToolSpecs:
         """Tool descriptions for the provider: eager plus already-loaded ones.

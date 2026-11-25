@@ -27,6 +27,7 @@ from snowpea_core.server.protocol_version import PROTOCOL_VERSION
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
+AsksUser = Literal["always", "first_use", "sometimes", "never"]
 #: What kind of thread a session is (CORE-session-kind).  ``chat`` is a thread
 #: a human opened; ``scheduled`` is one a job fired; ``subagent`` is a child a
 #: parent agent spawned; ``agent`` is a persistent named agent's own session.
@@ -2084,6 +2085,25 @@ class HostToolSpec(Payload):
             "appended, once per session."
         ),
     )
+    asksUser: AsksUser | None = Field(
+        default=None,
+        description=(
+            "1.80.0 (capability toolAsksUser): whether this tool asks the person before "
+            "acting — always, on first use per site or conversation, on some calls, or "
+            "never. Omitted or unknown becomes never. Core appends a fixed tag to the "
+            "description the model sees."
+        ),
+    )
+
+    @field_validator("asksUser", mode="before")
+    @classmethod
+    def _coerce_asks_user(cls, value: Any) -> str | None:
+        if value is None or value == "":
+            return None
+        text = str(value)
+        if text in ("always", "first_use", "sometimes", "never"):
+            return text
+        return "never"
 
 
 class ToolRegisterParams(Payload):
@@ -14229,6 +14249,9 @@ CAPABILITIES: list[str] = [
     "remoteMachines",
     # Jarvis lists and acts on remote sessions and terminals through the machine proxy (1.77.0).
     "jarvisRemote",
+    # 1.80.0: HostToolSpec.asksUser; core appends a fixed tag to built-in and host
+    # tool descriptions from the mode matrix and this field.
+    "toolAsksUser",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in

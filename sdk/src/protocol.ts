@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.79.0";
+export const PROTOCOL_VERSION = "1.80.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -10414,6 +10414,8 @@ export interface ToolRegisterParams {
   tools: ({
     /** Only sessions running as one of these agent definitions see it (1.24.0); null: every session of this host. */
     agents?: string[] | null;
+    /** 1.80.0 (capability toolAsksUser): whether this tool asks the person before acting — always, on first use per site or conversation, on some calls, or never. Omitted or unknown becomes never. Core appends a fixed tag to the description the model sees. */
+    asksUser?: "always" | "first_use" | "sometimes" | "never" | null;
     /** UI grouping; defaults to "host". */
     category?: string | null;
     /** Name it in the prompt and send its schema only after tool_search loads it, when the daemon has tools.agentDeferred on and the session's provider keeps a fixed tool list (1.21.0). Calling it by name still works. */

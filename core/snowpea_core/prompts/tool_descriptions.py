@@ -173,7 +173,9 @@ ASK_USER = (
     "blocks, so ask only what you cannot work out yourself — facts in the code you can; "
     "what the user wants (scope, priorities, which approach) you cannot — and read the "
     "result: a declined "
-    "or timed-out question is not agreement."
+    "or timed-out question is not agreement. Don't use it to ask permission for a call "
+    "whose description says it asks the user itself: that prompt is the question, and "
+    "asking first makes the user answer twice. Ask only for what the request leaves open."
 )
 
 TOOL_SEARCH = (

@@ -261,7 +261,7 @@ async def test_reconnect_resubscribes_jarvis_relay(daemon_pair) -> None:
 def test_protocol_advertises_jarvis_remote() -> None:
     from snowpea_core.server import protocol
 
-    assert protocol.PROTOCOL_VERSION == "1.79.0"
+    assert protocol.PROTOCOL_VERSION == "1.80.0"
     assert "jarvisRemote" in protocol.CAPABILITIES
 
 

@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.79.0` (semver)
+- **Protocol version:** `1.80.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.79.0"
+    "protocolVersion": "1.80.0"
   }
 }
 ```
@@ -148,6 +148,7 @@ Server capabilities advertised in the `system.hello` result:
 - `tabReadAlways`
 - `terminalSessions`
 - `terminalStatus`
+- `toolAsksUser`
 - `toolInvokeGuard`
 - `toolInvokeModel`
 - `toolProgressState`
@@ -5794,7 +5795,7 @@ Register tools this connection runs itself (host tools).
 | field | type | required | description |
 |---|---|---|---|
 | `capabilities` | `string[] \| null` | no | What this connection answers besides its tools (1.31.0): 'turnContext' opts in to host.turnContext for the sessions whose host tools it serves (a browser host only); 'turnContextCompaction' (1.37.0) also asks it again after each compaction. A list replaces the connection's earlier one; omitted keeps it. Unknown names are ignored. |
-| `tools` | `({ agents?: string[] \| null; category?: string \| null; deferred?: boolean; description: string; descriptionBy?: Record<string, string> \| null; descriptionShort?: string \| null; helpers?: string[] \| null; inputSchema?: Record<string, unknown>; kind?: "act" \| "read" \| null; look?: boolean; name: string; parallel?: "safe" \| "never"; permission: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside"; sections?: Record<string, string> \| null; timeoutMs?: number \| null; })[]` | yes | Tools to add or replace for this connection; all-or-nothing. |
+| `tools` | `({ agents?: string[] \| null; asksUser?: "always" \| "first_use" \| "sometimes" \| "never" \| null; category?: string \| null; deferred?: boolean; description: string; descriptionBy?: Record<string, string> \| null; descriptionShort?: string \| null; helpers?: string[] \| null; inputSchema?: Record<string, unknown>; kind?: "act" \| "read" \| null; look?: boolean; name: string; parallel?: "safe" \| "never"; permission: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside"; sections?: Record<string, string> \| null; timeoutMs?: number \| null; })[]` | yes | Tools to add or replace for this connection; all-or-nothing. |
 
 **Result**
 
