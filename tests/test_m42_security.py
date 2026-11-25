@@ -43,6 +43,7 @@ async def test_c1_remote_shell_typing_refused(daemon_pair) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("fake_cli")
 async def test_c1_remote_keys_records_decision_with_machine(daemon_pair) -> None:
     """Non-prompt keys on a CLI terminal record a ledger decision naming the machine."""
     local, remote = daemon_pair
@@ -173,6 +174,7 @@ def test_l5_jarvis_fresh_create_may_turn_switch_on(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("fake_cli")
 async def test_c1b_local_grant_does_not_authorize_remote_terminal(daemon_pair) -> None:
     """Remote typing must not inherit local delegation for the same bare terminal id."""
     local, remote = daemon_pair
@@ -288,6 +290,7 @@ async def test_h1_remote_login_prompt_without_jarvis_relay(daemon_pair, tmp_path
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("fake_cli")
 async def test_m4_remote_terminal_decision_uses_qualified_external_ref(daemon_pair) -> None:
     local, remote = daemon_pair
     mid = await _pair_connected(local, remote)
