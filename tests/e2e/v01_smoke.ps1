@@ -83,6 +83,8 @@ function Skip-Step([int]$N, [string]$Why) { Write-Host "SKIP $N $Why"; $script:S
 function Note([string]$Text) { Write-Host "     $Text" }
 
 $env:SNOWPEA_HOME = $E2EHome
+# Fixture setup key is not a live DeepSeek key; skip vendor verify (providerKeyVerify).
+$env:SNOWPEA_KEY_VERIFY = '0'
 $env:SNOWPEA_PROVIDER = "fake:$FakeScript"
 $env:UV_TOOL_DIR = Join-Path $ToolRoot 'tools'
 $env:UV_TOOL_BIN_DIR = Join-Path $ToolRoot 'bin'
