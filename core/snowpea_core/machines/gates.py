@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from snowpea_core.machines.proxy import PROXY_METHODS
+from snowpea_core.machines.proxy import JARVIS_PROXY_METHODS, PROXY_METHODS
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.person_gate import connection_kind
@@ -389,7 +389,88 @@ PROXY_PARAM_CLASSIFICATION: dict[str, dict[str, str]] = {
         "terminalId": "gated",
     },
     "workspace.list": {"machine": "harmless"},
+    "jarvis.session.set": {
+        "enabled": "gated",
+        "external": "harmless",
+        "sessionId": "harmless",
+    },
+    "session.artifacts": {"sessionId": "harmless"},
+    "session.close": {"sessionId": "harmless"},
+    "session.events": {
+        "afterSeq": "harmless",
+        "limit": "harmless",
+        "sessionId": "harmless",
+    },
+    "session.interrupt": {"sessionId": "harmless"},
+    "session.prompt": {
+        "attachments": "harmless",
+        "sessionId": "harmless",
+        "text": "gated",
+        "whenBusy": "harmless",
+    },
+    "session.rename": {"sessionId": "harmless", "title": "harmless"},
+    "session.setEffort": {"effort": "harmless", "sessionId": "harmless"},
+    "session.setMode": {
+        "actor": "gated",
+        "autoAfterPlan": "harmless",
+        "mode": "gated",
+        "sessionId": "harmless",
+    },
+    "session.setModel": {"model": "harmless", "sessionId": "harmless"},
+    "session.steer": {"sessionId": "harmless", "text": "gated"},
+    "session.trajectory": {
+        "afterSeq": "harmless",
+        "limit": "harmless",
+        "sessionId": "harmless",
+    },
+    "terminal.setJarvis": {
+        "enabled": "gated",
+        "machine": "harmless",
+        "terminalId": "harmless",
+    },
 }
+
+
+def _refuse_jarvis_privileged(params: BaseModel) -> None:
+    if getattr(params, "trust", False):
+        raise RpcError(
+            errors.UNAUTHORIZED,
+            "Jarvis may not trust a project on a remote machine",
+            {"reason": "jarvis_proxy_trust"},
+        )
+    if getattr(params, "confirmDangerous", False) or getattr(params, "options", None):
+        raise RpcError(
+            errors.UNAUTHORIZED,
+            "Jarvis may not use dangerous options on a remote machine",
+            {"reason": "jarvis_proxy_dangerous"},
+        )
+    mode = getattr(params, "mode", None)
+    if mode == "unrestricted":
+        raise RpcError(
+            errors.UNAUTHORIZED,
+            "Jarvis may not run unrestricted on a remote machine",
+            {"reason": "jarvis_proxy_unrestricted"},
+        )
+
+
+def run_jarvis_proxy_gates(
+    method: str,
+    params: BaseModel,
+    core: Any,
+    machine_id: str,
+) -> None:
+    """Gates for Jarvis's in-process machine proxy (1.77.0, jarvisRemote)."""
+    if method not in PROXY_METHODS and method not in JARVIS_PROXY_METHODS:
+        raise RpcError(
+            errors.NOT_IMPLEMENTED,
+            f"{method} cannot be proxied to a remote machine",
+            {"method": method},
+        )
+    _refuse_jarvis_privileged(params)
+    gate = _GATES.get(method)
+    if gate is not None:
+        jarvis_conn = type("_J", (), {"client_kind": "jarvis"})()
+        gate(jarvis_conn, core, params, machine_id)
 
 
 def run_proxy_gates(
@@ -480,6 +561,60 @@ async def ensure_machine_proxy_async(
         await gate_remote_snowpea_terminal(
             conn, core, terminal_id, client, interactive_attach=interactive
         )
+
+
+def gate_jarvis_machine_call(
+    method: str, params: BaseModel, core: Any, machine_id: str
+) -> None:
+    """Jarvis in-process remote calls: no trust, no dangerous options, switch must be on."""
+    if method not in PROXY_METHODS and method not in JARVIS_PROXY_METHODS:
+        raise RpcError(
+            errors.NOT_IMPLEMENTED,
+            f"{method} cannot be proxied to a remote machine",
+            {"method": method},
+        )
+    if getattr(params, "trust", False):
+        raise RpcError(errors.NOT_FOUND, "not found")
+    if getattr(params, "confirmDangerous", False) or getattr(params, "options", None):
+        raise RpcError(errors.NOT_FOUND, "not found")
+    mode = getattr(params, "mode", None)
+    if mode == "unrestricted":
+        raise RpcError(errors.NOT_FOUND, "not found")
+    jarvis = getattr(core, "jarvis", None)
+    if jarvis is None or not jarvis.running:
+        raise RpcError(errors.JARVIS_DISABLED, "Jarvis mode is off")
+    if method.startswith("terminal.") and getattr(params, "profile", None) == "snowpea":
+        raise RpcError(errors.NOT_FOUND, "not found")
+    term_id = getattr(params, "terminalId", None)
+    manager = getattr(core, "machines", None)
+    cache = getattr(manager, "_jarvis_cache", None) if manager is not None else None
+    write_methods = {
+        "terminal.send",
+        "terminal.keys",
+        "terminal.interrupt",
+        "terminal.write",
+        "terminal.close",
+    }
+    if term_id and method in write_methods:
+        if cache is not None and not cache.jarvis_on(machine_id, str(term_id)):
+            raise RpcError(errors.NOT_FOUND, "not found")
+    if method == "terminal.create" and getattr(params, "profile", None) == "snowpea":
+        raise RpcError(
+            errors.NOT_FOUND,
+            "Jarvis cannot type into a snowpea TUI terminal on a remote machine",
+            {"reason": "remote_snowpea_tui"},
+        )
+    if method in ("jarvis.session.set", "terminal.setJarvis"):
+        # The switch is the person's: Jarvis never turns one on (or off) over the proxy.
+        raise RpcError(errors.JARVIS_PERSON_ONLY, "only the person changes a Jarvis switch")
+    session_id = getattr(params, "sessionId", None)
+    if method.startswith("session.") and session_id:
+        if cache is None or not cache.jarvis_on_session(machine_id, str(session_id)):
+            raise RpcError(errors.NOT_FOUND, "not found")
+    ref = getattr(params, "ref", None)
+    if method.startswith("external.") and ref is not None:
+        if cache is None or not cache.jarvis_on_external(machine_id, ref):
+            raise RpcError(errors.NOT_FOUND, "not found")
 
 
 # Backward-compatible name (sync part only).

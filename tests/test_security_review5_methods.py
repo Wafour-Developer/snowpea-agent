@@ -139,7 +139,8 @@ TABLE: dict[str, tuple[str, ...]] = {
         "terminal.profiles", "terminal.list", "terminal.create", "terminal.attach",
         "terminal.detach", "terminal.write", "terminal.resize", "terminal.ack",
         "terminal.read", "terminal.send", "terminal.keys", "terminal.interrupt",
-        "terminal.wait", "terminal.close", "terminal.seen", "terminal.unlock",
+        "terminal.wait", "terminal.close", "terminal.seen", "terminal.setJarvis",
+        "terminal.unlock",
         "web.tunnel.unlock",
         # 1.59.0 개선하기: a person sends a conversation (never a browser or connector).
         "feedback.preview", "feedback.send",

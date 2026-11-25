@@ -1292,6 +1292,8 @@ class UiSettings(_Model):
 
     #: Default view of a snowpea session: the chat or the snowpea CLI in a terminal.
     sessionView: Literal["chat", "terminal"] = "chat"
+    #: Default view of a snowpea session on a remote machine (1.77.0, jarvisRemote).
+    remoteSessionView: Literal["chat", "terminal"] = "chat"
 
 
 class Settings(_Model):

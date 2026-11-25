@@ -248,7 +248,12 @@ def overview_rows(service: JarvisService) -> list[JarvisOverviewRow]:
 async def target(service: JarvisService, key: str) -> tuple[Any, dict[str, Any]]:
     """The :class:`~snowpea_core.jarvis.tools.Target` of an external session and its row."""
     from snowpea_core.jarvis.tools import Refused, Target
+    from snowpea_core.machines.jarvis_remote import split_qualified_id
 
+    if split_qualified_id(key)[0] is not None:
+        from snowpea_core.jarvis import remote_work
+
+        return await remote_work.external_target(service, key)
     parsed = parse_key(key)
     unknown = Refused(f"no external session {key!r} that Jarvis supervises")
     if parsed is None:
@@ -312,7 +317,10 @@ async def external_list(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     rows = [r for r in listed["sessions"] if service.projects.exposed(r.get("project"))
             # 1.56.0: only the sessions the person shared with Jarvis.
             and service._visible(*service.standing_of_external(r["ref"], r.get("project")))]
-    if not rows:
+    remote_lines: list[str] = []
+    if not args.get("project"):
+        remote_lines = await _remote_external_lines(service, clis[0] if clis else None)
+    if not rows and not remote_lines:
         return _result("no external sessions shared with you in the exposed projects",
                        count=0)
     lines = ["session | project | title | status | host | mode | gated | updated | preview"]
@@ -331,7 +339,29 @@ async def external_list(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             str(row.get("updatedAt") or "-"),
             str(row.get("preview") or "")[:120],
         ]))
-    return _result(fence("external-list", "\n".join(lines)), count=len(rows))
+    # Remote machines' sessions: the id column is machine-qualified, the project column
+    # names the machine.
+    lines.extend(remote_lines)
+    return _result(fence("external-list", "\n".join(lines)), count=len(rows) + len(remote_lines))
+
+
+async def _remote_external_lines(service: JarvisService, cli: str | None) -> list[str]:
+    """Rows of the switched-on external sessions of every connected remote machine (1.77.0)."""
+    from snowpea_core.jarvis import remote_work
+    from snowpea_core.machines.jarvis_remote import jarvis_proxy_call
+
+    machines = getattr(service.core, "machines", None)
+    if machines is None:
+        return []
+    for machine in machines.rows():
+        if machine.status != "connected":
+            continue
+        with contextlib.suppress(Exception):
+            await jarvis_proxy_call(
+                service.core, machine.id, "external.list",
+                {"allProjects": True, "limit": 100, **({"clis": [cli]} if cli else {})},
+            )
+    return remote_work.remote_external_lines(service, cli=cli)
 
 
 def _entry(event: dict[str, Any]) -> str | None:
@@ -367,6 +397,14 @@ async def external_read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 
     service = _service(ctx)
     found, row = await target(service, str(args.get("sessionId") or ""))
+    if found.machine_id:
+        from snowpea_core.jarvis import remote_work
+
+        return await remote_work.remote_external_read(
+            service, found, row,
+            before_seq=_int(args, "beforeSeq", 0, 0, 2**62) or None,
+            limit=_int(args, "limit", READ_DEFAULT, 1, READ_MAX),
+        )
     manager = _manager(service)
     assert manager is not None
     ref = _ref(found.session_id)
@@ -460,13 +498,17 @@ async def external_send(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     _not_unrestricted(row)
     manager = _manager(service)
     assert manager is not None
-    person_only = _person_only_row(manager, row)
+    person_only = _person_only_row(manager, row)  # this machine's mode table, also for a remote row
     if person_only is not None:
         raise Refused(
             f"that session runs in mode {person_only.label}, which only the person chooses "
             "(the CLI decides more on its own there); only the person works in it — tell "
             "them instead"
         )
+    if found.machine_id:
+        from snowpea_core.jarvis import remote_work
+
+        return await remote_work.remote_external_send(service, found, row, text)
     ref = _ref(found.session_id)
     try:
         sent = await manager.send(
@@ -504,6 +546,12 @@ async def external_interrupt(ctx: ToolContext, args: dict[str, Any]) -> ToolResu
     found, _row = await target(service, _text(args, "sessionId"))
     _not_paused(service, found.session_id)
     _authorized(service, ctx, found.session_id, found.project)
+    if found.machine_id:
+        from snowpea_core.jarvis import remote_work
+
+        return await remote_work.remote_external_interrupt(
+            service, found, _text(args, "reason", required=False, limit=300)
+        )
     manager = _manager(service)
     assert manager is not None
     ref = _ref(found.session_id)
@@ -666,7 +714,8 @@ def build_tools(service: JarvisService) -> list[Tool]:
     """The external-session tools (``hooks.tools``)."""
     from snowpea_core.jarvis.tools import _tool
 
-    key = {"type": "string", "description": "The session, as ext:<cli>:<id> (external_list)."}
+    key = {"type": "string", "description": "The session, as ext:<cli>:<id> (external_list), or "
+                   "<machineId>:ext:<cli>:<id> on a remote machine."}
     return [
         _tool(
             "external_list",

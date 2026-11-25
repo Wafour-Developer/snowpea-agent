@@ -192,6 +192,10 @@ async def test_a_scheduled_run_is_tagged_and_tells_the_thread_that_asked(
         origin_session_id=origin_id,
         workdir=str(tmp_path),
     )
+    wait_done = asyncio.create_task(
+        client.wait(lambda event: event["kind"] == "job.done" and event["sessionId"] == origin_id)
+    )
+    await asyncio.sleep(0)
     await daemon.core.scheduler.run_now(job.id)
 
     stored = await daemon.core.store.list_sessions(include_closed=True)
@@ -203,9 +207,7 @@ async def test_a_scheduled_run_is_tagged_and_tells_the_thread_that_asked(
 
     # The thread that asked for the job hears that it finished, and is told
     # which session to open.
-    done = await client.wait(
-        lambda event: event["kind"] == "job.done" and event["sessionId"] == origin_id
-    )
+    done = await asyncio.wait_for(wait_done, TIMEOUT)
     assert done["payload"]["jobId"] == job.id
     assert done["payload"]["sessionId"] == runs[0]["id"]
     assert done["payload"]["status"] == "ok"

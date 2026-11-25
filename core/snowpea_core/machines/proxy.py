@@ -12,6 +12,19 @@ PROXY_METHODS: frozenset[str] = frozenset(
         "session.list",
         "session.create",
         "session.resume",
+        "session.prompt",
+        "session.steer",
+        "session.interrupt",
+        "session.close",
+        "session.rename",
+        "session.events",
+        "session.trajectory",
+        "session.setMode",
+        "session.setModel",
+        "session.setEffort",
+        "session.artifacts",
+        "jarvis.session.set",
+        "terminal.setJarvis",
         "external.clis",
         "external.list",
         "external.open",
@@ -35,11 +48,19 @@ PROXY_METHODS: frozenset[str] = frozenset(
     }
 )
 
+#: Methods only Jarvis's in-process proxy (``jarvis_proxy_call``) may forward; a client's
+#: ``machine`` param never reaches them (``refuse_unknown_proxy`` keeps to PROXY_METHODS).
+JARVIS_PROXY_METHODS: frozenset[str] = frozenset(
+    {"external.read", "external.send", "external.interrupt", "external.get"}
+)
+
 RELAY_TERMINAL_EVENTS: frozenset[str] = frozenset(
     {"terminal.data", "terminal.status", "terminal.created", "terminal.exit", "terminal.title"}
 )
 
 RELAY_PERSON_EVENTS: frozenset[str] = frozenset({"approval.resolved", "question.resolved"})
+
+RELAY_SESSION_EVENTS: frozenset[str] = frozenset({"session.event"})
 
 
 def strip_machine(params: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:

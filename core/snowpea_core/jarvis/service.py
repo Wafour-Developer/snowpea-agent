@@ -484,6 +484,15 @@ class JarvisService:
         self.intake = intake
         await intake.seed()
         intake.attach()
+        from snowpea_core.machines.jarvis_remote import attach_jarvis_remote
+
+        attach_jarvis_remote(self)
+        machines = getattr(self.core, "machines", None)
+        ensure = getattr(machines, "ensure_jarvis_relay", None)
+        if machines is not None and ensure is not None:
+            for mid, live in machines._live.items():  # noqa: SLF001
+                if live.status == "connected":
+                    self._soon(ensure(mid))
         self.running = True
         self.core.approvals.router = self.route_approval
         self.core.questions.router = self.route_question
@@ -1364,6 +1373,11 @@ class JarvisService:
                 return self._visible(*self.standing_of_external(external))
             if not session_id:
                 return False
+            from snowpea_core.machines.jarvis_remote import remote_visible, split_qualified_id
+
+            if split_qualified_id(str(session_id))[0] is not None:
+                # A remote session, external session or terminal: its machine says (1.77.0).
+                return remote_visible(self.core, str(session_id))
             if str(session_id).startswith("ext:"):
                 from snowpea_core.jarvis.external import parse_key
 
@@ -1382,7 +1396,11 @@ class JarvisService:
 
     def sees_digest(self, digest: Digest) -> bool:
         """:meth:`sees` for the intake's digest of a session."""
-        if digest.session_id.startswith("ext:"):
+        from snowpea_core.machines.jarvis_remote import split_qualified_id
+
+        if digest.session_id.startswith("ext:") or (
+            split_qualified_id(digest.session_id)[0] is not None
+        ):
             return self.sees_ids(digest.session_id, None)
         session = self.core.sessions.get(digest.session_id)
         if session is not None:

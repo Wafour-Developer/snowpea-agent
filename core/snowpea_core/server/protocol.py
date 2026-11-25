@@ -9500,6 +9500,18 @@ class JarvisOverviewRow(Payload):
             "the terminal runs that external session): the terminal as terminal.list shows it."
         ),
     )
+    machine: str | None = Field(
+        default=None,
+        description=(
+            "1.77.0 (jarvisRemote): the id of the remote machine the session, external "
+            "session or terminal lives on; null for this daemon's own. A remote snowpea "
+            "session's sessionId is '<machineId>:<sessionId>'."
+        ),
+    )
+    machineLabel: str | None = Field(
+        default=None,
+        description="1.77.0 (jarvisRemote): the remote machine's label, with machine.",
+    )
 
 
 class JarvisOverviewResult(Payload):
@@ -10119,6 +10131,28 @@ class TerminalInfo(Payload):
             "an external CLI terminal can be resumed from its session id."
         ),
     )
+    jarvisOn: bool | None = Field(
+        default=None,
+        description=(
+            "The terminal's Jarvis switch (1.77.0, jarvisRemote): true when Jarvis may manage "
+            "it; false by default except terminals Jarvis started (parent jarvis)."
+        ),
+    )
+    jarvisPausedUntil: str | None = Field(
+        default=None,
+        description="As SessionJarvisState.pausedUntil when Jarvis manages this terminal (1.77.0).",
+    )
+
+
+class TerminalSetJarvisParams(MachineScope):
+    terminalId: str
+    enabled: bool = Field(description="Turn the terminal's Jarvis switch on or off; a person only.")
+
+
+class TerminalSetJarvisResult(Payload):
+    terminalId: str
+    enabled: bool
+    jarvisOn: bool
 
 
 class TerminalListParams(MachineScope):
@@ -10460,6 +10494,13 @@ class MachineRow(Payload):
     remoteCwd: str | None = None
     autoConnect: bool = False
     jarvisAllowed: bool = False
+    sessionView: Literal["chat", "terminal"] | None = Field(
+        default=None,
+        description=(
+            "Per-machine override for how snowpea sessions open (1.77.0, jarvisRemote); "
+            "null uses ui.remoteSessionView."
+        ),
+    )
     status: Literal["off", "connecting", "connected", "asking", "error"] = "off"
     error: str | None = None
     ask: MachineAsk | None = None
@@ -10487,6 +10528,7 @@ class MachineUpdateParams(Payload):
     remoteCwd: str | None = None
     autoConnect: bool | None = None
     jarvisAllowed: bool | None = None
+    sessionView: Literal["chat", "terminal"] | None = None
 
 
 class MachineIdParams(Payload):
@@ -13841,6 +13883,12 @@ METHODS: dict[str, RpcMethod] = {
            "Interrupt the program (Esc if it reports status, else Ctrl-C) (1.73.0)."),
         _m("terminal.wait", TerminalWaitParams, TerminalWaitResult,
            "Wait for the program to leave working, exit or print a match (1.73.0)."),
+        _m(
+            "terminal.setJarvis",
+            TerminalSetJarvisParams,
+            TerminalSetJarvisResult,
+            "Turn a terminal's Jarvis switch on or off (1.77.0, jarvisRemote); a person only.",
+        ),
         _m("terminal.close", TerminalCloseParams, Ok,
            "Kill the terminal (HUP, TERM, KILL) and forget it (1.73.0)."),
         _m("terminal.seen", TerminalIdParams, Ok,
@@ -14175,6 +14223,8 @@ CAPABILITIES: list[str] = [
     "providerKeyVerify",
     # 1.76.0 (M40): several remote snowpea machines over ssh; proxy RPCs carry machine.
     "remoteMachines",
+    # Jarvis lists and acts on remote sessions and terminals through the machine proxy (1.77.0).
+    "jarvisRemote",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in

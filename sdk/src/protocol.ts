@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.76.0";
+export const PROTOCOL_VERSION = "1.77.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -3168,6 +3168,10 @@ export interface JarvisOverviewResult {
     level?: "staged" | "full" | null;
     /** As SessionJarvisState.levelScope. */
     levelScope?: "session" | "project" | "global" | "default" | null;
+    /** 1.77.0 (jarvisRemote): the id of the remote machine the session, external session or terminal lives on; null for this daemon's own. A remote snowpea session's sessionId is '<machineId>:<sessionId>'. */
+    machine?: string | null;
+    /** 1.77.0 (jarvisRemote): the remote machine's label, with machine. */
+    machineLabel?: string | null;
     /** For an external session snowpea runs (host snowpea or tmux): its mode. */
     mode?: "default" | "readonly" | "unrestricted" | null;
     /** For such a session: the CLI's own mode it runs in (1.56.0), as the row's. */
@@ -3209,6 +3213,10 @@ export interface JarvisOverviewResult {
         /** Its own session id, once known. */
         sessionId?: string | null;
       } | null;
+      /** The terminal's Jarvis switch (1.77.0, jarvisRemote): true when Jarvis may manage it; false by default except terminals Jarvis started (parent jarvis). */
+      jarvisOn?: boolean | null;
+      /** As SessionJarvisState.pausedUntil when Jarvis manages this terminal (1.77.0). */
+      jarvisPausedUntil?: string | null;
       labels?: Record<string, string>;
       /** The holder is gone with no exit record (a reboot): only the entry is left; an external CLI terminal can be resumed from its session id. */
       lost?: boolean;
@@ -4216,6 +4224,8 @@ export interface MachineAddResult {
   pastedKey?: boolean;
   port?: number | null;
   remoteCwd?: string | null;
+  /** Per-machine override for how snowpea sessions open (1.77.0, jarvisRemote); null uses ui.remoteSessionView. */
+  sessionView?: "chat" | "terminal" | null;
   status?: "off" | "connecting" | "connected" | "asking" | "error";
   user?: string | null;
 }
@@ -4298,6 +4308,8 @@ export interface MachineListResult {
     pastedKey?: boolean;
     port?: number | null;
     remoteCwd?: string | null;
+    /** Per-machine override for how snowpea sessions open (1.77.0, jarvisRemote); null uses ui.remoteSessionView. */
+    sessionView?: "chat" | "terminal" | null;
     status?: "off" | "connecting" | "connected" | "asking" | "error";
     user?: string | null;
   })[];
@@ -4321,6 +4333,7 @@ export interface MachineUpdateParams {
   jarvisAllowed?: boolean | null;
   label?: string | null;
   remoteCwd?: string | null;
+  sessionView?: "chat" | "terminal" | null;
 }
 
 /** `machine.update` result. */
@@ -4344,6 +4357,8 @@ export interface MachineUpdateResult {
   pastedKey?: boolean;
   port?: number | null;
   remoteCwd?: string | null;
+  /** Per-machine override for how snowpea sessions open (1.77.0, jarvisRemote); null uses ui.remoteSessionView. */
+  sessionView?: "chat" | "terminal" | null;
   status?: "off" | "connecting" | "connected" | "asking" | "error";
   user?: string | null;
 }
@@ -9727,6 +9742,10 @@ export interface TerminalAttachResult {
       /** Its own session id, once known. */
       sessionId?: string | null;
     } | null;
+    /** The terminal's Jarvis switch (1.77.0, jarvisRemote): true when Jarvis may manage it; false by default except terminals Jarvis started (parent jarvis). */
+    jarvisOn?: boolean | null;
+    /** As SessionJarvisState.pausedUntil when Jarvis manages this terminal (1.77.0). */
+    jarvisPausedUntil?: string | null;
     labels?: Record<string, string>;
     /** The holder is gone with no exit record (a reboot): only the entry is left; an external CLI terminal can be resumed from its session id. */
     lost?: boolean;
@@ -9848,6 +9867,10 @@ export interface TerminalCreateResult {
       /** Its own session id, once known. */
       sessionId?: string | null;
     } | null;
+    /** The terminal's Jarvis switch (1.77.0, jarvisRemote): true when Jarvis may manage it; false by default except terminals Jarvis started (parent jarvis). */
+    jarvisOn?: boolean | null;
+    /** As SessionJarvisState.pausedUntil when Jarvis manages this terminal (1.77.0). */
+    jarvisPausedUntil?: string | null;
     labels?: Record<string, string>;
     /** The holder is gone with no exit record (a reboot): only the entry is left; an external CLI terminal can be resumed from its session id. */
     lost?: boolean;
@@ -9956,6 +9979,10 @@ export interface TerminalListResult {
       /** Its own session id, once known. */
       sessionId?: string | null;
     } | null;
+    /** The terminal's Jarvis switch (1.77.0, jarvisRemote): true when Jarvis may manage it; false by default except terminals Jarvis started (parent jarvis). */
+    jarvisOn?: boolean | null;
+    /** As SessionJarvisState.pausedUntil when Jarvis manages this terminal (1.77.0). */
+    jarvisPausedUntil?: string | null;
     labels?: Record<string, string>;
     /** The holder is gone with no exit record (a reboot): only the entry is left; an external CLI terminal can be resumed from its session id. */
     lost?: boolean;
@@ -10133,6 +10160,22 @@ export interface TerminalSendResult {
   accepted: boolean;
   reason?: string | null;
   sent?: boolean;
+}
+
+/** `terminal.setJarvis` params. Turn a terminal's Jarvis switch on or off (1.77.0, jarvisRemote); a person only. */
+export interface TerminalSetJarvisParams {
+  /** Turn the terminal's Jarvis switch on or off; a person only. */
+  enabled: boolean;
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
+  terminalId: string;
+}
+
+/** `terminal.setJarvis` result. */
+export interface TerminalSetJarvisResult {
+  enabled: boolean;
+  jarvisOn: boolean;
+  terminalId: string;
 }
 
 /** `terminal.unlock` params. Over the tunnel: enter the web password again to use terminals (1.73.0). */
@@ -11722,6 +11765,8 @@ export interface MachineChangedPayload {
     pastedKey?: boolean;
     port?: number | null;
     remoteCwd?: string | null;
+    /** Per-machine override for how snowpea sessions open (1.77.0, jarvisRemote); null uses ui.remoteSessionView. */
+    sessionView?: "chat" | "terminal" | null;
     status?: "off" | "connecting" | "connected" | "asking" | "error";
     user?: string | null;
   })[];
@@ -12035,6 +12080,10 @@ export interface TerminalCreatedPayload {
       /** Its own session id, once known. */
       sessionId?: string | null;
     } | null;
+    /** The terminal's Jarvis switch (1.77.0, jarvisRemote): true when Jarvis may manage it; false by default except terminals Jarvis started (parent jarvis). */
+    jarvisOn?: boolean | null;
+    /** As SessionJarvisState.pausedUntil when Jarvis manages this terminal (1.77.0). */
+    jarvisPausedUntil?: string | null;
     labels?: Record<string, string>;
     /** The holder is gone with no exit record (a reboot): only the entry is left; an external CLI terminal can be resumed from its session id. */
     lost?: boolean;
@@ -13370,6 +13419,7 @@ export interface MethodMap {
   "terminal.resize": { params: TerminalResizeParams; result: TerminalResizeResult };
   "terminal.seen": { params: TerminalSeenParams; result: TerminalSeenResult };
   "terminal.send": { params: TerminalSendParams; result: TerminalSendResult };
+  "terminal.setJarvis": { params: TerminalSetJarvisParams; result: TerminalSetJarvisResult };
   "terminal.unlock": { params: TerminalUnlockParams; result: TerminalUnlockResult };
   "terminal.wait": { params: TerminalWaitParams; result: TerminalWaitResult };
   "terminal.write": { params: TerminalWriteParams; result: TerminalWriteResult };
@@ -13636,6 +13686,7 @@ export type ClientMethod =
   | "terminal.resize"
   | "terminal.seen"
   | "terminal.send"
+  | "terminal.setJarvis"
   | "terminal.unlock"
   | "terminal.wait"
   | "terminal.write"

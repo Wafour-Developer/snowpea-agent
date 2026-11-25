@@ -260,7 +260,7 @@ PLAIN: dict[str, str] = {
         "maxResultLines max_output_chars mcpResultMaxChars readBeforeWrite repeatGuard "
         "snapshotMaxChars"
     ),
-    "ui": "sessionView",
+    "ui": "sessionView remoteSessionView",
     "updates": "check",
 }
 

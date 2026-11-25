@@ -79,6 +79,7 @@ class MachineRecord:
     remote_cwd: str | None = None
     auto_connect: bool = False
     jarvis_allowed: bool = False
+    session_view: str | None = None
     status: str = "off"
     error: str | None = None
 
@@ -104,6 +105,7 @@ class MachineRecord:
             "remoteCwd": self.remote_cwd,
             "autoConnect": self.auto_connect,
             "jarvisAllowed": self.jarvis_allowed,
+            "sessionView": self.session_view,
             "status": self.status,
             "error": self.error,
             **extra,
@@ -158,6 +160,7 @@ class MachineRegistry:
                 remote_cwd=item.get("remoteCwd"),
                 auto_connect=bool(item.get("autoConnect")),
                 jarvis_allowed=bool(item.get("jarvisAllowed")),
+                session_view=item.get("sessionView"),
             )
             self.records[rec.id] = rec
 
@@ -175,6 +178,7 @@ class MachineRegistry:
                     "remoteCwd": rec.remote_cwd,
                     "autoConnect": rec.auto_connect,
                     "jarvisAllowed": rec.jarvis_allowed,
+                    "sessionView": rec.session_view,
                 }
                 for rec in self.records.values()
             ]

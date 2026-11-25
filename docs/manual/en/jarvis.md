@@ -419,3 +419,13 @@ Jarvis mode is a beta. These are the limits you should know before you rely on i
 - **Jarvis cannot fetch a URL.** It searches the web with short queries only. It cannot open a link that you paste.
 - **Jarvis cannot read snowpea's own files.** Its reads exclude snowpea's home folder, and the file a linked `settings.json` points at. Searches leave out lines from secret files.
 - **A guarded action can still go wrong.** A grant you confirm is applied exactly as shown. Read the scope and the guarded kinds before you press Confirm.
+
+## Remote machines (1.77.0)
+
+When [remote machines](machines.md) are connected, Jarvis can list and act on their snowpea sessions, external sessions and terminals through an in-process proxy (`jarvisRemote`). Rows are labelled with the machine name and may use ids of the form `<machineId>:<sessionOrTerminalId>`.
+
+Jarvis manages a session or terminal **only when its Jarvis switch is on** — locally and on the remote. A person (or an allowed remote web login on the local core) turns the switch on; Jarvis cannot turn it on. New terminals start with the switch off except terminals Jarvis creates (`parent=jarvis`).
+
+When you type into a supervised terminal or session yourself, Jarvis steps back for `jarvis.quietMinutes` (the same pause as a snowpea chat). Human `terminal.write` with `human: true` from a person connection pauses Jarvis there; keystrokes Jarvis sends never count as human input.
+
+Jarvis never uses trust, unrestricted mode or dangerous options on a remote machine, and refuses a remote id when the switch is off as if it did not exist.

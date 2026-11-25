@@ -139,7 +139,7 @@ async def test_direct_connect_and_proxy_workspace_list(daemon_pair: tuple[Daemon
             await asyncio.sleep(0.05)
         assert row.status == "connected"
         await client.ok("workspace.list", {"machine": mid})
-        assert "session.prompt" not in PROXY_METHODS
+        assert "session.prompt" in PROXY_METHODS
         await client.stop()
 
 

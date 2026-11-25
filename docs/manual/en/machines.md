@@ -30,3 +30,11 @@ snowpea machine remove <id>
 ```
 
 See also [remote](remote.md) for the single-window remote mode (`snowpea --remote`), which is unchanged.
+
+## Snowpea sessions on a remote machine (1.77.0)
+
+On this computer, snowpea sessions open as **chat** or **terminal** according to `ui.sessionView` in **Settings → Terminal**. On a connected remote machine the default comes from `ui.remoteSessionView` (also in **Settings → Terminal**). A machine may override that with **sessionView** on its row in **Machines → Edit**.
+
+Chat uses the normal conversation view with a machine badge; events from the remote session carry `machine` on each `session.event`. Terminal opens (or reuses) a `snowpea` profile terminal on that machine.
+
+Remote chat uses the same proxied methods as local sessions (`session.resume`, `session.prompt`, `session.interrupt`, and the rest of the allowlist). Only a local person or an allowed remote web login may send them; Jarvis uses a separate in-process path when [Jarvis remote](jarvis.md#remote-machines) is on.

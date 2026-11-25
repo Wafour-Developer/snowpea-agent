@@ -65,6 +65,8 @@ def build_rows(
     limit: int | None = None,
 ) -> list[JarvisOverviewRow]:
     """Every supervised session in an exposed project, most relevant first."""
+    from snowpea_core.machines.jarvis_remote import split_qualified_id
+
     core = service.core
     intake = service.intake
     projects = service.projects
@@ -80,6 +82,8 @@ def build_rows(
             continue
         if digest.session_id.startswith("ext:"):
             continue  # external sessions come from their own source (hooks.overview_sources)
+        if split_qualified_id(digest.session_id)[0] is not None:
+            continue  # a remote machine's: its rows come from the jarvis_remote source
         if not projects.exposed(digest.project):
             continue
         if not service.sees_digest(digest):
@@ -184,11 +188,7 @@ def render_table(service: JarvisService, rows: list[JarvisOverviewRow], total: i
             level += ",taken over"
         elif row.pausedUntil:
             level += f",paused to {_when(row.pausedUntil)}"
-        ident = row.sessionId or (
-            f"ext:{row.external.cli}:{row.external.id}" if row.external
-            else f"{row.terminal.terminalId} (terminal {row.terminal.profile})" if row.terminal
-            else "?"
-        )
+        ident = row_ident(row, "?")
         if not row.exposed:
             level += ",browser: status only"
         level += external_flags(row)
@@ -208,6 +208,18 @@ def render_table(service: JarvisService, rows: list[JarvisOverviewRow], total: i
         )
     lines.append(f'</untrusted nonce="{_NONCE}">')
     return "\n".join(lines)
+
+
+def row_ident(row: JarvisOverviewRow, fallback: str) -> str:
+    """How a row is named to Jarvis: the id its tools take (machine-qualified when remote)."""
+    if row.sessionId:
+        return row.sessionId
+    if row.external:
+        key = f"ext:{row.external.cli}:{row.external.id}"
+        return f"{row.machine}:{key}" if row.machine else key
+    if row.terminal:
+        return f"{row.terminal.terminalId} (terminal {row.terminal.profile})"
+    return fallback
 
 
 def external_flags(row: JarvisOverviewRow) -> str:
@@ -255,4 +267,5 @@ __all__ = [
     "order",
     "register_context_provider",
     "render_table",
+    "row_ident",
 ]

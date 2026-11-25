@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.machines.gates import (
@@ -103,6 +104,8 @@ async def machine_update_handler(
         rec.auto_connect = params.autoConnect
     if params.jarvisAllowed is not None:
         rec.jarvis_allowed = params.jarvisAllowed
+    if params.sessionView is not None:
+        rec.session_view = params.sessionView
     manager.registry.save()
     await manager.announce()
     row = next((r for r in manager.rows() if r.id == params.id), None)
@@ -207,7 +210,49 @@ async def proxy_call(
         term_id = str(params.get("terminalId") or "")
         if term_id:
             manager.register_viewer(machine_id, term_id, conn)
+    elif method in ("session.resume", "session.create"):
+        session_id = str(
+            result.get("sessionId")
+            or (result.get("session") or {}).get("sessionId")
+            or params.get("sessionId")
+            or ""
+        )
+        if session_id:
+            manager.register_session_viewer(machine_id, session_id, conn)
+    elif method == "session.close":
+        session_id = str(params.get("sessionId") or "")
+        if session_id:
+            manager.unregister_session_viewer(machine_id, session_id, conn)
+    # The person writing into a remote terminal or session themselves pauses Jarvis there.
+    # (Jarvis's own calls take jarvis_proxy_call, never this path, so a proxied prompt
+    # or steer here is the person's.)
+    if method == "terminal.write" and bool(getattr(validated, "human", False)):
+        await _note_person_typed(conn, core, machine_id, str(getattr(validated, "terminalId", "")))
+    elif method in ("session.prompt", "session.steer"):
+        await _note_person_typed(conn, core, machine_id, str(getattr(validated, "sessionId", "")))
     return result
+
+
+async def _note_person_typed(
+    conn: RpcConnection, core: Core, machine_id: str, local_id: str
+) -> None:
+    jarvis = getattr(core, "jarvis", None)
+    from snowpea_core.server.person_gate import connection_kind, is_person
+
+    if jarvis is None or not jarvis.running or not local_id:
+        return
+    if connection_kind(conn) != "person":
+        return
+    if not (is_person(conn, local=True) or getattr(conn, "remote_login", False)):
+        return
+    from snowpea_core.machines.jarvis_remote import delegation_key
+
+    with contextlib.suppress(Exception):
+        await jarvis.person_typed(
+            delegation_key(machine_id, local_id),
+            None,
+            surface=getattr(conn, "surface_id", None),
+        )
 
 
 def register_machine_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:

@@ -351,7 +351,7 @@ class Intake:
             return None
         if digest is None:
             if session is None:
-                return None
+                return self._remote_digest(session_id)
             if not self.service.sees(session):
                 return None  # 1.56.0: switch off
             if is_task_worker(session):
@@ -381,6 +381,26 @@ class Intake:
             digest.title = session.title
         if session is not None:
             digest.browser = self.service.browser_host(session)
+        return digest
+
+    def _remote_digest(self, session_id: str) -> Digest | None:
+        """A digest of a remote session (``<machineId>:<id>``) its machine lists as switched on."""
+        from snowpea_core.machines.jarvis_remote import remote_seed, split_qualified_id
+
+        if split_qualified_id(session_id)[0] is None:
+            return None
+        seed = remote_seed(self.service.core, session_id)
+        if seed is None:
+            return None
+        digest = Digest(
+            session_id=session_id,
+            project=None,
+            title=seed["title"],
+            kind=str(seed["kind"]),
+            status=str(seed["status"]),
+        )
+        digest.touch(seed.get("last_activity"))
+        self.digests[session_id] = digest
         return digest
 
     # -- the hub side ----------------------------------------------------

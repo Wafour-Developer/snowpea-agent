@@ -144,7 +144,7 @@ async def _run_device_code(
 
 def test_capability_and_version() -> None:
     assert "providerLoginOpenBrowser" in CAPABILITIES
-    assert PROTOCOL_VERSION == "1.76.0"
+    assert PROTOCOL_VERSION == "1.77.0"
 
 
 def test_open_browser_is_optional_and_absent_by_default() -> None:

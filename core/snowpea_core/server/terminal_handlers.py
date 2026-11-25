@@ -66,7 +66,7 @@ HANDLED_METHODS: tuple[str, ...] = (
     "terminal.profiles", "terminal.list", "terminal.create", "terminal.attach",
     "terminal.detach", "terminal.write", "terminal.resize", "terminal.ack", "terminal.read",
     "terminal.send", "terminal.keys", "terminal.interrupt", "terminal.wait", "terminal.close",
-    "terminal.seen", "terminal.unlock", "terminal.report",
+    "terminal.seen", "terminal.setJarvis", "terminal.unlock", "terminal.report",
 )
 
 #: Never handed to a terminal's program: the daemon's own secrets and switches
@@ -308,10 +308,32 @@ async def profiles_handler(conn: RpcConnection, _params: Any, core: Core) -> dic
     return {"profiles": [_shell_profile()]}
 
 
+def _decorate_terminal_row(core: Core, row: dict[str, Any]) -> dict[str, Any]:
+    jarvis = getattr(core, "jarvis", None)
+    if jarvis is None:
+        return row
+    from snowpea_core.jarvis.terminals import key_of
+
+    term_id = str(row.get("terminalId") or "")
+    manager = ensure_manager(core)
+    try:
+        term = manager.get(term_id)
+        key = key_of(term)
+    except Exception:
+        return row
+    on = jarvis.engine.switch(key)
+    state = jarvis.engine.session_state(key, project=None, exposed=True, enabled=bool(on))
+    row = {**row, "jarvisOn": bool(on)}
+    paused = getattr(state, "paused_until", None) or getattr(state, "pausedUntil", None)
+    if paused:
+        row["jarvisPausedUntil"] = paused
+    return row
+
+
 async def list_handler(_conn: RpcConnection, params: TerminalListParams,
                        core: Core) -> dict[str, Any]:
-    return {"terminals": ensure_manager(core).list(parent=params.parent,
-                                                   alive_only=params.aliveOnly)}
+    rows = ensure_manager(core).list(parent=params.parent, alive_only=params.aliveOnly)
+    return {"terminals": [_decorate_terminal_row(core, row) for row in rows]}
 
 
 async def create_handler(conn: RpcConnection, params: TerminalCreateParams,
@@ -347,14 +369,13 @@ async def create_handler(conn: RpcConnection, params: TerminalCreateParams,
         spec.prompt = params.prompt
     info = await manager.create(spec)
     jarvis = getattr(core, "jarvis", None)
-    if jarvis is not None:
-        # A new terminal starts as jarvis.sessions.default says (as a new session).
+    if jarvis is not None and spec.parent == "jarvis":
+        # Terminals Jarvis creates start with the switch on (1.77.0); all others off.
+        from snowpea_core.jarvis.terminals import key_of
+
         with contextlib.suppress(Exception):
-            if jarvis.default_on():
-                external = info.get("external") or {}
-                key = (f"ext:{external['cli']}:{external['sessionId']}"
-                       if external.get("sessionId") else info["terminalId"])
-                jarvis.engine.set_switch(key, True, by="new", quiet=True)
+            term = manager.get(info["terminalId"])
+            jarvis.engine.set_switch(key_of(term), True, by="jarvis", quiet=True)
     return {"terminal": info}
 
 
@@ -386,8 +407,23 @@ async def write_handler(conn: RpcConnection, params: TerminalWriteParams,
                         core: Core) -> dict[str, Any]:
     _tunnel_gate(conn, core, kind="write")
     _snowpea_gate(conn, core, params.terminalId)
-    await ensure_manager(core).write(params.terminalId, conn, _decode(params.data),
-                                     human=params.human)
+    manager = ensure_manager(core)
+    await manager.write(params.terminalId, conn, _decode(params.data), human=params.human)
+    if params.human:
+        jarvis = getattr(core, "jarvis", None)
+        from snowpea_core.server.person_gate import connection_kind, is_person
+
+        if jarvis is not None and jarvis.running and connection_kind(conn) == "person":
+            if is_person(conn, local=True) or getattr(conn, "remote_login", False):
+                from snowpea_core.jarvis.terminals import _project_of, key_of
+
+                with contextlib.suppress(Exception):
+                    term = manager.get(params.terminalId)
+                    await jarvis.person_typed(
+                        key_of(term),
+                        _project_of(jarvis, term.spec.cwd),
+                        surface=getattr(conn, "surface_id", None),
+                    )
     return {"ok": True}
 
 
@@ -452,6 +488,38 @@ async def seen_handler(_conn: RpcConnection, params: TerminalIdParams,
     return {"ok": True}
 
 
+async def set_jarvis_handler(
+    conn: RpcConnection, params: Any, core: Core
+) -> dict[str, Any]:
+    from snowpea_core.jarvis.terminals import key_of
+    from snowpea_core.server.person_gate import require_person
+    from snowpea_core.server.protocol import TerminalSetJarvisParams
+
+    require_person(conn, "call terminal.setJarvis")
+    if not isinstance(params, TerminalSetJarvisParams):
+        params = TerminalSetJarvisParams.model_validate(params)
+    manager = ensure_manager(core)
+    try:
+        term = manager.get(params.terminalId)
+    except Exception as exc:
+        raise RpcError(errors.NOT_FOUND, "terminal not found") from exc
+    jarvis = getattr(core, "jarvis", None)
+    if jarvis is None:
+        raise RpcError(errors.JARVIS_DISABLED, "Jarvis mode is off")
+    key = key_of(term)
+    on, locked = jarvis.standing(key, project=None)
+    if locked is not None:
+        raise RpcError(
+            errors.INVALID_PARAMS,
+            f"this terminal's Jarvis switch cannot be changed ({locked})",
+            {"reason": locked},
+        )
+    jarvis.engine.set_switch(key, bool(params.enabled), by="person")
+    await jarvis.settle()
+    enabled = bool(jarvis.engine.switch(key))
+    return {"terminalId": params.terminalId, "enabled": enabled, "jarvisOn": enabled}
+
+
 async def report_handler(_conn: RpcConnection, params: TerminalReportParams,
                          core: Core) -> dict[str, Any]:
     report = HookReport(event=params.event, state=params.state, kind=params.kind,
@@ -478,6 +546,7 @@ _HANDLERS: dict[str, Any] = {
     "terminal.wait": wait_handler,
     "terminal.close": close_handler,
     "terminal.seen": seen_handler,
+    "terminal.setJarvis": set_jarvis_handler,
     "terminal.report": report_handler,
 }
 

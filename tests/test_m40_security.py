@@ -476,6 +476,16 @@ def test_n3b_clamp_drops_extra_reply_keys() -> None:
     assert set(out) <= {"decision", "scope", "reason"}
 
 
+def test_jarvis_proxy_refuses_trust() -> None:
+    from snowpea_core.machines.gates import run_jarvis_proxy_gates
+    from snowpea_core.server.protocol import TerminalCreateParams
+
+    params = TerminalCreateParams(profile="shell", cwd="/p", trust=True)
+    with pytest.raises(RpcError) as caught:
+        run_jarvis_proxy_gates("terminal.create", params, _core(), "mid")
+    assert caught.value.code == errors.UNAUTHORIZED
+
+
 def test_proxy_param_fields_are_classified() -> None:
     from snowpea_core.machines.gates import PROXY_PARAM_CLASSIFICATION
     from snowpea_core.machines.proxy import PROXY_METHODS

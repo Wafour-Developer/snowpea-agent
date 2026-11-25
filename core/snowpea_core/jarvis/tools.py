@@ -245,6 +245,14 @@ class Target:
     browser: bool
     title: str | None
     host: str | None
+    #: A remote machine's session (1.77.0): ``session_id`` is ``<machineId>:<remote_id>``,
+    #: ``remote_id`` the id on that machine (``ext:<cli>:<id>`` for an external session).
+    machine_id: str | None = None
+    remote_id: str | None = None
+
+    @property
+    def is_external(self) -> bool:
+        return (self.remote_id or self.session_id).startswith("ext:")
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +346,12 @@ async def _target(service: JarvisService, session_id: str, *, read: bool) -> Tar
     """Resolve ``session_id`` as Jarvis may see it; refuse what it may not."""
     core = service.core
     session_id = str(session_id or "").strip()
+    from snowpea_core.machines.jarvis_remote import split_qualified_id
+
+    if split_qualified_id(session_id)[0] is not None:
+        from snowpea_core.jarvis import remote_work
+
+        return await remote_work.remote_target(service, session_id)
     if session_id.startswith("ext:"):
         from snowpea_core.jarvis import external
 
@@ -386,7 +400,7 @@ async def _target(service: JarvisService, session_id: str, *, read: bool) -> Tar
 
 
 def _snowpea_only(target: Target, instead: str) -> Target:
-    if target.session_id.startswith("ext:"):
+    if target.is_external:
         raise Refused(f"that is an external CLI session; use {instead}")
     return target
 
@@ -504,7 +518,7 @@ async def session_list(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     )
     if not rows:
         return _result("no supervised sessions match", count=0)
-    from snowpea_core.jarvis.overview import external_flags
+    from snowpea_core.jarvis.overview import external_flags, row_ident
 
     lines = ["session | project | title | status | waiting | level | last activity | digest"]
     for row in rows:
@@ -516,11 +530,7 @@ async def session_list(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         if not row.exposed:
             level += ", browser: status only"
         level += external_flags(row).replace(",", ", ")
-        ident = row.sessionId or (
-            f"ext:{row.external.cli}:{row.external.id}" if row.external
-            else f"{row.terminal.terminalId} (terminal {row.terminal.profile})" if row.terminal
-            else "-"
-        )
+        ident = row_ident(row, "-")
         lines.append(
             " | ".join(
                 [
@@ -541,9 +551,11 @@ async def session_list(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 def _terminal_id(args: dict[str, Any]) -> str | None:
     """``sessionId`` when it names a terminal (``t`` + 8 hex): the terminal tools take it."""
     from snowpea_core.jarvis.terminals import is_terminal_id
+    from snowpea_core.machines.jarvis_remote import split_qualified_id
 
     value = str(args.get("sessionId") or "").strip()
-    return value if is_terminal_id(value) else None
+    # ``<machineId>:t…`` names a terminal on a remote machine.
+    return value if is_terminal_id(split_qualified_id(value)[1]) else None
 
 
 async def session_read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
@@ -559,7 +571,17 @@ async def session_read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     view = str(args.get("view") or "digest")
     if view not in ("digest", "trajectory"):
         raise Refused("view must be 'digest' or 'trajectory'")
-    if view == "digest":
+    if target.machine_id:
+        from snowpea_core.jarvis import remote_work
+
+        text = await remote_work.remote_session_read(
+            service,
+            target,
+            view=view,
+            limit=_int(args, "limit", TRAJECTORY_DEFAULT, 1, TRAJECTORY_MAX),
+            before_seq=_int(args, "beforeSeq", 0, 0, 2**62) or None,
+        )
+    elif view == "digest":
         text = _digest_text(service, target)
     else:
         text = await _trajectory_text(
@@ -731,6 +753,10 @@ async def session_prompt(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         raise Refused("whenBusy must be 'queue' or 'steer'")
     _not_paused(service, target.session_id)
     _authorized(service, ctx, target.session_id, target.project)
+    if target.machine_id:
+        from snowpea_core.jarvis import remote_work
+
+        return await remote_work.remote_session_prompt(service, ctx, target, text, when_busy)
     session = await _live(service, target)
     from snowpea_core.session import mode_guard
 
@@ -762,6 +788,10 @@ async def session_steer(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     text = _plain(_text(args, "text", limit=PROMPT_MAX_CHARS))
     _not_paused(service, target.session_id)
     _authorized(service, ctx, target.session_id, target.project)
+    if target.machine_id:
+        from snowpea_core.jarvis import remote_work
+
+        return await remote_work.remote_session_steer(service, ctx, target, text)
     session = await _live(service, target)
     from snowpea_core.agent import loop as agent_loop
     from snowpea_core.session import mode_guard
@@ -804,6 +834,12 @@ async def session_interrupt(ctx: ToolContext, args: dict[str, Any]) -> ToolResul
     )
     _not_paused(service, target.session_id)
     _authorized(service, ctx, target.session_id, target.project)
+    if target.machine_id:
+        from snowpea_core.jarvis import remote_work
+
+        return await remote_work.remote_session_interrupt(
+            service, target, _text(args, "reason", required=False, limit=300)
+        )
     session = service.core.sessions.get(target.session_id)
     if session is None:
         return _result(f"{target.session_id} is not running")

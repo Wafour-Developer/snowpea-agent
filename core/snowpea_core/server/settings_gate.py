@@ -938,7 +938,7 @@ REMOTE_LOGIN_ALLOWED: frozenset[str] = REMOTE_LOGIN_METHODS | frozenset({
     "terminal.profiles", "terminal.list", "terminal.create", "terminal.attach",
     "terminal.detach", "terminal.write", "terminal.resize", "terminal.ack", "terminal.read",
     "terminal.send", "terminal.keys", "terminal.interrupt", "terminal.wait", "terminal.close",
-    "terminal.seen", "terminal.unlock", "web.tunnel.unlock",
+    "terminal.seen", "terminal.setJarvis", "terminal.unlock", "web.tunnel.unlock",
     # Jarvis (PERSON_METHODS keeps jarvis.enable a local person's)
     "jarvis.status", "jarvis.overview", "jarvis.disable", "jarvis.project.list",
     "jarvis.project.rename", "jarvis.project.alias", "jarvis.escalations.list",

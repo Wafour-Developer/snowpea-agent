@@ -133,11 +133,9 @@ def _external_ref(term: Any) -> dict[str, str] | None:
 
 
 def visible(service: JarvisService, term: Any) -> bool:
-    """Jarvis may see ``term``: its own, or a switched-on one in an exposed project."""
-    if term.spec.parent == "jarvis":
-        return True
+    """Jarvis may see ``term`` when its switch is on and the project is exposed (1.77.0)."""
     project = _project_of(service, term.spec.cwd)
-    if not project or not service.projects.exposed(project):
+    if project and not service.projects.exposed(project):
         return False
     with contextlib.suppress(Exception):
         return bool(service._visible(*service.standing(key_of(term), project=project)))
@@ -192,6 +190,43 @@ def overview_rows(service: JarvisService) -> list[JarvisOverviewRow]:
     if manager is None:
         return []
     rows: list[JarvisOverviewRow] = []
+    machines = getattr(service.core, "machines", None)
+    cache = getattr(machines, "_jarvis_cache", None) if machines is not None else None
+    if cache is not None:
+        from snowpea_core.machines.jarvis_remote import delegation_key, machine_label, qualify
+
+        for item in cache.visible_rows():
+            key = delegation_key(item.machine_id, item.terminal_id)
+            state = service.engine.session_state(key, project=None, exposed=True, enabled=True)
+            status_state = str(item.status.get("state") or "idle")
+            label = machine_label(machines, item.machine_id)
+            digest = f"[{label}] {status_state}: remote terminal"
+            qid = qualify(item.machine_id, item.terminal_id)
+            rows.append(
+                JarvisOverviewRow(
+                    sessionId=qid,
+                    external=None,
+                    project=None,
+                    title=f"{label}: {safe_title(item.title)}",
+                    status=status_state,  # type: ignore[arg-type]
+                    level=state.level,
+                    exposed=True,
+                    pausedUntil=state.pausedUntil,
+                    takenOver=state.takenOver,
+                    levelScope=state.levelScope,
+                    grantId=state.grantId,
+                    lastActivityAt=None,
+                    digest=digest[:200],
+                    terminal={
+                        "terminalId": qid,
+                        "profile": item.profile,
+                        "title": item.title,
+                        "parent": item.parent,
+                    },
+                    machine=item.machine_id,
+                    machineLabel=label,
+                )
+            )
     for term in manager.terminals():
         if not visible(service, term):
             continue
@@ -345,6 +380,39 @@ def _status_text(term: Any) -> str:
     return f"{status.state}{kind}{seen}{alive}"
 
 
+async def _remote_terminal_table(service: JarvisService) -> list[str]:
+    from snowpea_core.machines.jarvis_remote import jarvis_proxy_call, qualify
+
+    machines = getattr(service.core, "machines", None)
+    if machines is None:
+        return []
+    out: list[str] = []
+    for row in machines.rows():
+        if row.status != "connected":
+            continue
+        try:
+            listed = await jarvis_proxy_call(
+                service.core, row.id, "terminal.list", {}
+            )
+        except Exception:  # noqa: BLE001
+            continue
+        for item in listed.get("terminals") or []:
+            if not item.get("jarvisOn"):
+                continue
+            tid = qualify(row.id, str(item.get("terminalId") or ""))
+            status = (item.get("status") or {}).get("state", "idle")
+            out.append(" | ".join([
+                tid,
+                str(item.get("profile") or "-"),
+                row.label,
+                safe_title(item.get("title")),
+                status,
+                "-",
+                str(item.get("parent") or "the person"),
+            ]))
+    return out
+
+
 async def terminal_list(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     from snowpea_core.jarvis.tools import _result, _service, fence
 
@@ -354,8 +422,6 @@ async def terminal_list(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             if visible(service, t)]
     if args.get("activeOnly"):
         rows = [t for t in rows if t.alive]
-    if not rows:
-        return _result("no terminals Jarvis supervises", count=0)
     lines = ["terminal | profile | project | title | status | delegated | started by"]
     for term in rows:
         project = _project_of(service, term.spec.cwd)
@@ -366,14 +432,51 @@ async def terminal_list(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             "full" if delegated(service, term) else "-",
             term.spec.parent or "the person",
         ]))
-    return _result(fence("terminal-list", "\n".join(lines)), count=len(rows))
+    lines.extend(await _remote_terminal_table(service))
+    if len(lines) <= 1:
+        return _result("no terminals Jarvis supervises", count=0)
+    return _result(fence("terminal-list", "\n".join(lines)), count=len(lines) - 1)
 
 
 async def terminal_read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     from snowpea_core.jarvis.tools import _int, _result, _service, _text, fence
+    from snowpea_core.machines.jarvis_remote import jarvis_proxy_call, split_qualified_id
 
     service = _service(ctx)
-    term = _find(service, _text(args, "id"))
+    raw_id = _text(args, "id")
+    machine_id, local_id = split_qualified_id(raw_id)
+    if machine_id:
+        from snowpea_core.jarvis.tools import Refused
+
+        machines = getattr(service.core, "machines", None)
+        cache = getattr(machines, "_jarvis_cache", None) if machines is not None else None
+        if cache is not None:
+            await jarvis_proxy_call(service.core, machine_id, "terminal.list", {})
+            if not cache.jarvis_on(machine_id, local_id):
+                raise Refused(f"no terminal {raw_id!r} that Jarvis supervises")
+        lines = _int(args, "lines", READ_DEFAULT, 1, READ_MAX)
+        result = await jarvis_proxy_call(
+            service.core,
+            machine_id,
+            "terminal.read",
+            {"terminalId": local_id, "lines": lines},
+        )
+        remote_label = f"{raw_id}"
+        body = result.get("text") or ""
+        await service.record_access(
+            session_id=raw_id,
+            project=None,
+            host=None,
+            action="read",
+            summary=f"read remote terminal {remote_label}",
+            external=None,
+        )
+        return _result(
+            f"terminal {remote_label} (remote)\n{fence(f'terminal:{raw_id}', body)}",
+            state=result.get("state"),
+            alive=result.get("alive"),
+        )
+    term = _find(service, raw_id)
     lines = _int(args, "lines", READ_DEFAULT, 1, READ_MAX)
     text = term.manager.read(term.id, lines)["text"]
     await _access(service, term, "read", f"read {lines} lines")
@@ -381,6 +484,41 @@ async def terminal_read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     body = f"title: {safe_title(term.title)}\n{text}"
     return _result(f"{head}\n{fence(f'terminal:{term.id}', body)}",
                    state=term.status.state, alive=term.alive)
+
+
+async def _remote_op(
+    service: JarvisService,
+    raw_id: str,
+    method: str,
+    params: dict[str, Any],
+    *,
+    action: str,
+    summary: str,
+) -> ToolResult:
+    from snowpea_core.jarvis.tools import _result
+    from snowpea_core.machines.jarvis_remote import (
+        jarvis_proxy_call,
+        machine_label,
+        split_qualified_id,
+    )
+
+    machine_id, local_id = split_qualified_id(raw_id)
+    if machine_id is None:
+        raise RuntimeError("expected a qualified remote id")
+    machines = getattr(service.core, "machines", None)
+    label = machine_label(machines, machine_id) if machines is not None else machine_id[:8]
+    result = await jarvis_proxy_call(
+        service.core, machine_id, method, {**params, "terminalId": local_id}
+    )
+    await service.record_access(
+        session_id=raw_id,
+        project=None,
+        host=f"machine:{label}",
+        action=action,
+        summary=summary,
+        external=None,
+    )
+    return _result(f"remote terminal {raw_id} ({label}): done", **result)
 
 
 async def terminal_send(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
@@ -392,10 +530,29 @@ async def terminal_send(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         _service,
         _text,
     )
+    from snowpea_core.machines.jarvis_remote import split_qualified_id
     from snowpea_core.terminal.input import sanitize_agent_text
 
     service = _service(ctx)
-    term = _find(service, _text(args, "id"))
+    raw_id = _text(args, "id")
+    machine_id, local_id = split_qualified_id(raw_id)
+    if machine_id:
+        from snowpea_core.jarvis.tools import _not_paused
+
+        _not_paused(service, raw_id)
+        text = _plain(sanitize_agent_text(_text(args, "text", limit=PROMPT_MAX_CHARS)).strip())
+        if not text:
+            raise Refused("text is empty once control characters are removed")
+        sent = await _remote_op(
+            service,
+            raw_id,
+            "terminal.send",
+            {"text": text, "force": False},
+            action="prompt",
+            summary=f"typed into remote terminal {raw_id}: {text}"[:160],
+        )
+        return sent
+    term = _find(service, raw_id)
     # What reaches the PTY is plain text (the gate strips controls again).
     text = _plain(sanitize_agent_text(_text(args, "text", limit=PROMPT_MAX_CHARS)).strip())
     if not text:
@@ -495,10 +652,31 @@ def _still_the_prompt(term: Any, command: str | None) -> Any:
 
 async def terminal_keys(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     from snowpea_core.jarvis.tools import Refused, _result, _service, _text
+    from snowpea_core.machines.jarvis_remote import split_qualified_id
     from snowpea_core.terminal.profiles import profile_def
 
     service = _service(ctx)
-    term = _find(service, _text(args, "id"))
+    raw_id = _text(args, "id")
+    machine_id, _local_id = split_qualified_id(raw_id)
+    if machine_id:
+        from snowpea_core.jarvis.tools import _not_paused
+
+        keys = args.get("keys")
+        if not isinstance(keys, list) or not keys or len(keys) > KEYS_MAX:
+            raise Refused(f"keys must be a list of 1 to {KEYS_MAX} key names")
+        names = [str(k).strip().lower() for k in keys]
+        if not all(KEY_RE.match(k) for k in names):
+            raise Refused("only named keys (enter, escape, up, down, 1 …)")
+        _not_paused(service, raw_id)
+        return await _remote_op(
+            service,
+            raw_id,
+            "terminal.keys",
+            {"keys": names},
+            action="prompt",
+            summary="keys: " + " ".join(names),
+        )
+    term = _find(service, raw_id)
     keys = args.get("keys")
     if not isinstance(keys, list) or not keys or len(keys) > KEYS_MAX:
         raise Refused(f"keys must be a list of 1 to {KEYS_MAX} key names")
@@ -558,9 +736,25 @@ async def terminal_keys(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 
 async def terminal_interrupt(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     from snowpea_core.jarvis.tools import _result, _service, _text
+    from snowpea_core.machines.jarvis_remote import split_qualified_id
 
     service = _service(ctx)
-    term = _find(service, _text(args, "id"))
+    raw_id = _text(args, "id")
+    machine_id, _local_id = split_qualified_id(raw_id)
+    if machine_id:
+        from snowpea_core.jarvis.tools import _not_paused
+
+        _not_paused(service, raw_id)
+        reason = _text(args, "reason", required=False, limit=300)
+        return await _remote_op(
+            service,
+            raw_id,
+            "terminal.interrupt",
+            {},
+            action="interrupt",
+            summary=reason or "interrupted",
+        )
+    term = _find(service, raw_id)
     _may_type(service, ctx, term)
     await term.manager.interrupt(term.id)
     reason = _text(args, "reason", required=False, limit=300)
@@ -572,12 +766,26 @@ async def terminal_interrupt(ctx: ToolContext, args: dict[str, Any]) -> ToolResu
 
 async def terminal_wait(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     from snowpea_core.jarvis.tools import _int, _result, _service, _text
+    from snowpea_core.machines.jarvis_remote import jarvis_proxy_call, split_qualified_id
 
     service = _service(ctx)
-    term = _find(service, _text(args, "id"))
+    raw_id = _text(args, "id")
+    machine_id, local_id = split_qualified_id(raw_id)
     timeout = _int(args, "timeout", WAIT_DEFAULT, 1, WAIT_MAX)
-    # Literal text, matched as a substring (never a pattern: review M5).
     output = _text(args, "output", required=False, limit=200) or None
+    if machine_id:
+        result = await jarvis_proxy_call(
+            service.core,
+            machine_id,
+            "terminal.wait",
+            {"terminalId": local_id, "timeout": timeout, "output": output},
+        )
+        return _result(
+            f"terminal {raw_id}: {result.get('reason')} — remote",
+            reason=result.get("reason"),
+            state=(result.get("status") or {}).get("state"),
+        )
+    term = _find(service, raw_id)
     result = await term.manager.wait(term.id, timeout, output)
     return _result(
         f"terminal {term.id}: {result['reason']} — now {_status_text(term)}",
@@ -647,7 +855,10 @@ async def terminal_create(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 def build_tools(service: JarvisService) -> list[Tool]:
     from snowpea_core.jarvis.tools import _tool
 
-    ident = {"type": "string", "description": "The terminal id (t + 8 hex, terminal_list)."}
+    ident = {
+        "type": "string",
+        "description": "The terminal id (t + 8 hex, or <machineId>:t… for a remote machine).",
+    }
     return [
         _tool("terminal_list",
               "Terminals the person or you started (Claude Code, Codex, agy, Cursor, snowpea, "
@@ -708,6 +919,9 @@ def attach(service: JarvisService) -> None:
 
         source.__terminal_service__ = service  # type: ignore[attr-defined]
         hooks.overview_sources.append(source)
+    from snowpea_core.machines.jarvis_remote import attach_jarvis_remote
+
+    attach_jarvis_remote(service)
     try:
         from snowpea_core.server.terminal_handlers import ensure_manager
 

@@ -60,7 +60,7 @@ def _hello(**extra: Any) -> dict[str, Any]:
 
 
 def test_contract() -> None:
-    assert PROTOCOL_VERSION == "1.76.0"
+    assert PROTOCOL_VERSION == "1.77.0"
     assert "clientLocale" in CAPABILITIES
     assert "locale" in HelloParams.model_fields
 

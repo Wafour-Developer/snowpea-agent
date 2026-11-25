@@ -1027,7 +1027,17 @@ class DelegationEngine:
         stamp = _iso(self.now())
         with self._lock:
             db = self._conn()
-            row = db.execute("SELECT enabled FROM switches WHERE target = ?", (key,)).fetchone()
+            row = db.execute(
+                "SELECT enabled, set_by FROM switches WHERE target = ?", (key,)
+            ).fetchone()
+            if (
+                enabled
+                and by == "jarvis"
+                and row is not None
+                and not bool(row["enabled"])
+                and str(row["set_by"]) not in ("new", "fork", "migration")
+            ):
+                return False
             if row is not None and bool(row["enabled"]) == bool(enabled):
                 return False
             db.execute(

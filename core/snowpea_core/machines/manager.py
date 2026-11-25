@@ -17,8 +17,13 @@ from snowpea_core.cli import remote
 from snowpea_core.cli.daemon_client import DaemonClient, DaemonInfo
 from snowpea_core.cli.remote import RemoteSession
 from snowpea_core.cli.remote_up import HostKeys, ssh_runner
-from snowpea_core.machines.proxy import RELAY_PERSON_EVENTS, RELAY_TERMINAL_EVENTS
+from snowpea_core.machines.proxy import (
+    RELAY_PERSON_EVENTS,
+    RELAY_SESSION_EVENTS,
+    RELAY_TERMINAL_EVENTS,
+)
 from snowpea_core.machines.registry import MachineRegistry
+from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import PROTOCOL_VERSION, MachineAsk, MachineRow
 
@@ -124,7 +129,12 @@ class MachineManager:
         self._direct = direct
         self._ssh = ssh
         self._viewers: dict[tuple[str, str], set[RpcConnection]] = defaultdict(set)
+        self._session_viewers: dict[tuple[str, str], set[RpcConnection]] = defaultdict(set)
         self._conn_clients: dict[tuple[str, str], DaemonClient] = {}
+        self._jarvis_clients: dict[str, DaemonClient] = {}
+        self._jarvis_relays: dict[str, asyncio.Task[None]] = {}
+        self._jarvis_cache: Any = None
+        self._jarvis_remote_attached = False
         self._conn_relays: dict[tuple[str, str], asyncio.Task[None]] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
 
@@ -251,6 +261,7 @@ class MachineManager:
                 self._open_session(machine_id, live, rec)
             live.status = "connected"
             self._start_supervisor(machine_id, live)
+            self._schedule_jarvis_relay(machine_id)
         except Exception as exc:  # noqa: BLE001
             live.status = "error"
             live.error = str(exc)
@@ -304,6 +315,7 @@ class MachineManager:
                         self._open_session(machine_id, live, rec)
                         live.status = "connected"
                         self._announce_sync()
+                        self._schedule_jarvis_relay(machine_id)
                         break
                     except Exception as exc:  # noqa: BLE001
                         live.error = str(exc)
@@ -356,6 +368,11 @@ class MachineManager:
                 viewers.discard(conn)
                 if not viewers:
                     self._viewers.pop(term_key, None)
+        for sess_key, viewers in list(self._session_viewers.items()):
+            if conn in viewers:
+                viewers.discard(conn)
+                if not viewers:
+                    self._session_viewers.pop(sess_key, None)
 
     def disconnect(self, machine_id: str) -> None:
         live = self._live.get(machine_id)
@@ -371,6 +388,10 @@ class MachineManager:
         for key in [k for k in self._conn_clients if k[0] == machine_id]:
             if self._loop is not None:
                 asyncio.run_coroutine_threadsafe(self._close_conn_client(key), self._loop)
+        if self._loop is not None:
+            asyncio.run_coroutine_threadsafe(self.close_jarvis_client(machine_id), self._loop)
+        for key in [k for k in list(self._session_viewers) if k[0] == machine_id]:
+            self._session_viewers.pop(key, None)
         if live.client is not None and self._loop:
             asyncio.run_coroutine_threadsafe(live.client.close(), self._loop)
         live.client = None
@@ -590,6 +611,17 @@ class MachineManager:
                     continue
                 await owner.notify(method, params)
                 continue
+            if method in RELAY_SESSION_EVENTS:
+                params = dict(frame.get("params") or {})
+                params["machine"] = machine_id
+                session_id = str(params.get("sessionId", ""))
+                if not session_id:
+                    continue
+                viewers = self._session_viewers.get((machine_id, session_id), set())
+                if owner not in viewers or getattr(owner, "closed", False):
+                    continue
+                await owner.notify(method, params)
+                continue
             if method not in RELAY_TERMINAL_EVENTS:
                 continue
             params = dict(frame.get("params") or {})
@@ -627,4 +659,79 @@ class MachineManager:
 
     def unregister_viewer(self, machine_id: str, terminal_id: str, conn: RpcConnection) -> None:
         self._viewers.get((machine_id, terminal_id), set()).discard(conn)
+
+    def register_session_viewer(
+        self, machine_id: str, session_id: str, conn: RpcConnection
+    ) -> None:
+        self._session_viewers[(machine_id, session_id)].add(conn)
+
+    def unregister_session_viewer(
+        self, machine_id: str, session_id: str, conn: RpcConnection
+    ) -> None:
+        self._session_viewers.get((machine_id, session_id), set()).discard(conn)
+
+    def _schedule_jarvis_relay(self, machine_id: str) -> None:
+        jarvis = getattr(self.core, "jarvis", None)
+        ensure = getattr(self, "ensure_jarvis_relay", None)
+        if jarvis is None or not jarvis.running or ensure is None or self._loop is None:
+            return
+        asyncio.run_coroutine_threadsafe(ensure(machine_id), self._loop)
+
+    async def jarvis_proxy_call(
+        self, machine_id: str, method: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Forward one RPC to a remote machine for Jarvis (1.77.0, jarvisRemote)."""
+        from snowpea_core.machines.gates import gate_jarvis_machine_call, run_jarvis_proxy_gates
+        from snowpea_core.server.protocol import METHODS
+
+        spec = METHODS.get(method)
+        if spec is None:
+            raise RpcError(errors.METHOD_NOT_FOUND_CODE, f"unknown method: {method}")
+        validated = spec.params.model_validate({k: v for k, v in params.items() if k != "machine"})
+        run_jarvis_proxy_gates(method, validated, self.core, machine_id)
+        gate_jarvis_machine_call(method, validated, self.core, machine_id)
+        client = await self.jarvis_client(machine_id)
+        clean = {k: v for k, v in params.items() if k != "machine"}
+        try:
+            result = await client.call(method, clean)
+        except Exception as exc:
+            raise self._map_rpc_error(exc) from exc
+        cache = self._jarvis_cache
+        if cache is not None:
+            if method == "terminal.list":
+                for item in result.get("terminals") or []:
+                    if isinstance(item, dict):
+                        cache.upsert(machine_id, item)
+            elif method == "session.list":
+                for item in result.get("sessions") or []:
+                    if isinstance(item, dict):
+                        cache.upsert_session(machine_id, item)
+            elif method == "external.list":
+                for item in result.get("sessions") or []:
+                    if isinstance(item, dict):
+                        cache.upsert_external(machine_id, item)
+        return result
+
+    async def jarvis_client(self, machine_id: str) -> DaemonClient:
+        """In-process proxy client for Jarvis (1.77.0, jarvisRemote); not an RPC connection."""
+        live = self._live.get(machine_id)
+        if live is None or live.status != "connected":
+            raise RuntimeError("machine is not connected")
+        client = self._jarvis_clients.get(machine_id)
+        if client is None:
+            info = DaemonInfo(port=live.port, pid=0, token=live.token)
+            client = DaemonClient(
+                info,
+                client_version=f"snowpea-jarvis-proxy {__version__}",
+                notification_queue_max=NOTIFY_QUEUE_MAX,
+            )
+            await client.connect()
+            self._jarvis_clients[machine_id] = client
+        return client
+
+    async def close_jarvis_client(self, machine_id: str) -> None:
+        client = self._jarvis_clients.pop(machine_id, None)
+        if client is not None:
+            with contextlib.suppress(Exception):
+                await client.close()
 

@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.76.0` (semver)
+- **Protocol version:** `1.77.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.76.0"
+    "protocolVersion": "1.77.0"
   }
 }
 ```
@@ -79,6 +79,7 @@ Server capabilities advertised in the `system.hello` result:
 - `jarvis`
 - `jarvisBriefing`
 - `jarvisDelegation`
+- `jarvisRemote`
 - `jarvisRemoteGrant`
 - `jarvisSessionSwitch`
 - `jobApprovals`
@@ -400,6 +401,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`terminal.resize`](#terminalresize) | client → server | Resize from the most recent interactive viewer (1.73.0). |
 | [`terminal.seen`](#terminalseen) | client → server | A person looked at the terminal: clears its done/blocked attention (1.73.0). |
 | [`terminal.send`](#terminalsend) | client → server | Send text through the input gate (waits for the person to be quiet) (1.73.0). |
+| [`terminal.setJarvis`](#terminalsetjarvis) | client → server | Turn a terminal's Jarvis switch on or off (1.77.0, jarvisRemote); a person only. |
 | [`terminal.unlock`](#terminalunlock) | client → server | Over the tunnel: enter the web password again to use terminals (1.73.0). |
 | [`terminal.wait`](#terminalwait) | client → server | Wait for the program to leave working, exit or print a match (1.73.0). |
 | [`terminal.write`](#terminalwrite) | client → server | Send bytes to the PTY (a viewer's typing) (1.73.0). |
@@ -2077,7 +2079,7 @@ Jarvis mode (1.53.0, WP3): one row per supervised session, snowpea and external.
 |---|---|---|---|
 | `generatedAt` | `string` | yes | UTC ISO time the table was taken. |
 | `hiddenCount` | `number` | no | 1.56.0 (jarvisSessionSwitch): how many open sessions (snowpea and the external ones snowpea has open) are not shared with Jarvis — switch off, or locked hidden — so a client can say 'N sessions are not shared with Jarvis'. The rows list only sessions whose switch is on. |
-| `rows` | `({ approvals?: "bridged" \| "person" \| "degraded" \| "none" \| null; controlled?: boolean \| null; digest?: string; exposed?: boolean; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; grantId?: string \| null; host?: "none" \| "terminal" \| "tmux" \| "snowpea" \| null; hostToolsFrom?: string \| null; lastActivityAt?: string \| null; level?: "staged" \| "full" \| null; levelScope?: "session" \| "project" \| "global" \| "default" \| null; mode?: "default" \| "readonly" \| "unrestricted" \| null; nativeMode?: string \| null; originSurface?: string \| null; pausedUntil?: string \| null; pendingApprovals?: number; pendingQuestions?: number; project?: string \| null; securityListsApply?: boolean \| null; sessionId?: string \| null; status: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; takenOver?: boolean; terminal?: { alive: boolean; cols?: number; createdAt?: string; cwd?: string; dangerous?: boolean; exitCode?: number \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; sessionId?: string \| null; } \| null; labels?: Record<string, string>; lost?: boolean; options?: string[]; parent?: string \| null; pid?: number \| null; profile: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; rows?: number; snowpeaSessionId?: string \| null; status: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }; terminalId: string; title?: string; } \| null; title?: string \| null; waitingOnPerson?: number; })[]` | no | Newest activity first. |
+| `rows` | `({ approvals?: "bridged" \| "person" \| "degraded" \| "none" \| null; controlled?: boolean \| null; digest?: string; exposed?: boolean; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; grantId?: string \| null; host?: "none" \| "terminal" \| "tmux" \| "snowpea" \| null; hostToolsFrom?: string \| null; lastActivityAt?: string \| null; level?: "staged" \| "full" \| null; levelScope?: "session" \| "project" \| "global" \| "default" \| null; machine?: string \| null; machineLabel?: string \| null; mode?: "default" \| "readonly" \| "unrestricted" \| null; nativeMode?: string \| null; originSurface?: string \| null; pausedUntil?: string \| null; pendingApprovals?: number; pendingQuestions?: number; project?: string \| null; securityListsApply?: boolean \| null; sessionId?: string \| null; status: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; takenOver?: boolean; terminal?: { alive: boolean; cols?: number; createdAt?: string; cwd?: string; dangerous?: boolean; exitCode?: number \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; sessionId?: string \| null; } \| null; jarvisOn?: boolean \| null; jarvisPausedUntil?: string \| null; labels?: Record<string, string>; lost?: boolean; options?: string[]; parent?: string \| null; pid?: number \| null; profile: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; rows?: number; snowpeaSessionId?: string \| null; status: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }; terminalId: string; title?: string; } \| null; title?: string \| null; waitingOnPerson?: number; })[]` | no | Newest activity first. |
 
 ### `jarvis.project.alias`
 
@@ -2597,6 +2599,7 @@ Register an SSH target; a pasted key is stored locally only (1.76.0).
 | `pastedKey` | `boolean` | no |  |
 | `port` | `number \| null` | no |  |
 | `remoteCwd` | `string \| null` | no |  |
+| `sessionView` | `"chat" \| "terminal" \| null` | no | Per-machine override for how snowpea sessions open (1.77.0, jarvisRemote); null uses ui.remoteSessionView. |
 | `status` | `"off" \| "connecting" \| "connected" \| "asking" \| "error"` | no |  |
 | `user` | `string \| null` | no |  |
 
@@ -2674,7 +2677,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `machines` | `({ ask?: { fingerprint?: string \| null; host?: string \| null; id: string; keyType?: string \| null; kind: "hostKey" \| "install"; question?: string \| null; version?: string \| null; } \| null; autoConnect?: boolean; error?: string \| null; host: string; id: string; jarvisAllowed?: boolean; keyPath?: string \| null; label: string; pastedKey?: boolean; port?: number \| null; remoteCwd?: string \| null; status?: "off" \| "connecting" \| "connected" \| "asking" \| "error"; user?: string \| null; })[]` | no |  |
+| `machines` | `({ ask?: { fingerprint?: string \| null; host?: string \| null; id: string; keyType?: string \| null; kind: "hostKey" \| "install"; question?: string \| null; version?: string \| null; } \| null; autoConnect?: boolean; error?: string \| null; host: string; id: string; jarvisAllowed?: boolean; keyPath?: string \| null; label: string; pastedKey?: boolean; port?: number \| null; remoteCwd?: string \| null; sessionView?: "chat" \| "terminal" \| null; status?: "off" \| "connecting" \| "connected" \| "asking" \| "error"; user?: string \| null; })[]` | no |  |
 
 ### `machine.remove`
 
@@ -2709,6 +2712,7 @@ Change label, cwd, auto-connect or the per-machine Jarvis switch (1.76.0).
 | `jarvisAllowed` | `boolean \| null` | no |  |
 | `label` | `string \| null` | no |  |
 | `remoteCwd` | `string \| null` | no |  |
+| `sessionView` | `"chat" \| "terminal" \| null` | no |  |
 
 **Result**
 
@@ -2725,6 +2729,7 @@ Change label, cwd, auto-connect or the per-machine Jarvis switch (1.76.0).
 | `pastedKey` | `boolean` | no |  |
 | `port` | `number \| null` | no |  |
 | `remoteCwd` | `string \| null` | no |  |
+| `sessionView` | `"chat" \| "terminal" \| null` | no | Per-machine override for how snowpea sessions open (1.77.0, jarvisRemote); null uses ui.remoteSessionView. |
 | `status` | `"off" \| "connecting" \| "connected" \| "asking" \| "error"` | no |  |
 | `user` | `string \| null` | no |  |
 
@@ -5344,7 +5349,7 @@ Attach this connection as a viewer; terminal.data then goes to it alone (1.73.0)
 | field | type | required | description |
 |---|---|---|---|
 | `cols` | `number` | yes |  |
-| `info` | `{ alive: boolean; cols?: number; createdAt?: string; cwd?: string; dangerous?: boolean; exitCode?: number \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; sessionId?: string \| null; } \| null; labels?: Record<string, string>; lost?: boolean; options?: string[]; parent?: string \| null; pid?: number \| null; profile: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; rows?: number; snowpeaSessionId?: string \| null; status: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }; terminalId: string; title?: string; }` | yes |  |
+| `info` | `{ alive: boolean; cols?: number; createdAt?: string; cwd?: string; dangerous?: boolean; exitCode?: number \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; sessionId?: string \| null; } \| null; jarvisOn?: boolean \| null; jarvisPausedUntil?: string \| null; labels?: Record<string, string>; lost?: boolean; options?: string[]; parent?: string \| null; pid?: number \| null; profile: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; rows?: number; snowpeaSessionId?: string \| null; status: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }; terminalId: string; title?: string; }` | yes |  |
 | `repaint` | `string` | yes | base64 ANSI that rebuilds the screen in a fresh viewer. |
 | `rows` | `number` | yes |  |
 | `seq` | `number` | yes | Sequence of the last byte included; terminal.data follows. |
@@ -5401,7 +5406,7 @@ Start a terminal in a registered project; dangerous options need confirmDangerou
 
 | field | type | required | description |
 |---|---|---|---|
-| `terminal` | `{ alive: boolean; cols?: number; createdAt?: string; cwd?: string; dangerous?: boolean; exitCode?: number \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; sessionId?: string \| null; } \| null; labels?: Record<string, string>; lost?: boolean; options?: string[]; parent?: string \| null; pid?: number \| null; profile: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; rows?: number; snowpeaSessionId?: string \| null; status: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }; terminalId: string; title?: string; }` | yes |  |
+| `terminal` | `{ alive: boolean; cols?: number; createdAt?: string; cwd?: string; dangerous?: boolean; exitCode?: number \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; sessionId?: string \| null; } \| null; jarvisOn?: boolean \| null; jarvisPausedUntil?: string \| null; labels?: Record<string, string>; lost?: boolean; options?: string[]; parent?: string \| null; pid?: number \| null; profile: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; rows?: number; snowpeaSessionId?: string \| null; status: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }; terminalId: string; title?: string; }` | yes |  |
 
 ### `terminal.detach`
 
@@ -5479,7 +5484,7 @@ Terminals the daemon holds (1.73.0, terminalSessions).
 
 | field | type | required | description |
 |---|---|---|---|
-| `terminals` | `({ alive: boolean; cols?: number; createdAt?: string; cwd?: string; dangerous?: boolean; exitCode?: number \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; sessionId?: string \| null; } \| null; labels?: Record<string, string>; lost?: boolean; options?: string[]; parent?: string \| null; pid?: number \| null; profile: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; rows?: number; snowpeaSessionId?: string \| null; status: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }; terminalId: string; title?: string; })[]` | no |  |
+| `terminals` | `({ alive: boolean; cols?: number; createdAt?: string; cwd?: string; dangerous?: boolean; exitCode?: number \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; sessionId?: string \| null; } \| null; jarvisOn?: boolean \| null; jarvisPausedUntil?: string \| null; labels?: Record<string, string>; lost?: boolean; options?: string[]; parent?: string \| null; pid?: number \| null; profile: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; rows?: number; snowpeaSessionId?: string \| null; status: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }; terminalId: string; title?: string; })[]` | no |  |
 
 ### `terminal.profiles`
 
@@ -5612,6 +5617,28 @@ Send text through the input gate (waits for the person to be quiet) (1.73.0).
 | `accepted` | `boolean` | yes | The program went to working within 5 s. |
 | `reason` | `string \| null` | no |  |
 | `sent` | `boolean` | no |  |
+
+### `terminal.setJarvis`
+
+*Direction:* client → server
+
+Turn a terminal's Jarvis switch on or off (1.77.0, jarvisRemote); a person only.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `enabled` | `boolean` | yes | Turn the terminal's Jarvis switch on or off; a person only. |
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
+| `terminalId` | `string` | yes |  |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `enabled` | `boolean` | yes |  |
+| `jarvisOn` | `boolean` | yes |  |
+| `terminalId` | `string` | yes |  |
 
 ### `terminal.unlock`
 
@@ -6497,7 +6524,7 @@ Set the sidebar order (1.47.0).
 
 | field | type | required | description |
 |---|---|---|---|
-| `machines` | `({ ask?: { fingerprint?: string \| null; host?: string \| null; id: string; keyType?: string \| null; kind: "hostKey" \| "install"; question?: string \| null; version?: string \| null; } \| null; autoConnect?: boolean; error?: string \| null; host: string; id: string; jarvisAllowed?: boolean; keyPath?: string \| null; label: string; pastedKey?: boolean; port?: number \| null; remoteCwd?: string \| null; status?: "off" \| "connecting" \| "connected" \| "asking" \| "error"; user?: string \| null; })[]` | no |  |
+| `machines` | `({ ask?: { fingerprint?: string \| null; host?: string \| null; id: string; keyType?: string \| null; kind: "hostKey" \| "install"; question?: string \| null; version?: string \| null; } \| null; autoConnect?: boolean; error?: string \| null; host: string; id: string; jarvisAllowed?: boolean; keyPath?: string \| null; label: string; pastedKey?: boolean; port?: number \| null; remoteCwd?: string \| null; sessionView?: "chat" \| "terminal" \| null; status?: "off" \| "connecting" \| "connected" \| "asking" \| "error"; user?: string \| null; })[]` | no |  |
 
 ### `mcp.auth.done`
 
@@ -6649,7 +6676,7 @@ Set the sidebar order (1.47.0).
 
 | field | type | required | description |
 |---|---|---|---|
-| `terminal` | `{ alive: boolean; cols?: number; createdAt?: string; cwd?: string; dangerous?: boolean; exitCode?: number \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; sessionId?: string \| null; } \| null; labels?: Record<string, string>; lost?: boolean; options?: string[]; parent?: string \| null; pid?: number \| null; profile: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; rows?: number; snowpeaSessionId?: string \| null; status: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }; terminalId: string; title?: string; }` | yes |  |
+| `terminal` | `{ alive: boolean; cols?: number; createdAt?: string; cwd?: string; dangerous?: boolean; exitCode?: number \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; sessionId?: string \| null; } \| null; jarvisOn?: boolean \| null; jarvisPausedUntil?: string \| null; labels?: Record<string, string>; lost?: boolean; options?: string[]; parent?: string \| null; pid?: number \| null; profile: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; rows?: number; snowpeaSessionId?: string \| null; status: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }; terminalId: string; title?: string; }` | yes |  |
 
 ### `terminal.data`
 

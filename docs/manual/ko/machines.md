@@ -30,3 +30,11 @@ snowpea machine remove <id>
 ```
 
 창 전체가 원격으로 바뀌는 모드(`snowpea --remote`)는 [remote](remote.md)를 보세요. 동작은 그대로입니다.
+
+## 원격 머신에서 snowpea 세션 (1.77.0)
+
+이 컴퓨터에서는 **설정 → 터미널**의 `ui.sessionView`에 따라 snowpea 세션이 **채팅** 또는 **터미널**로 열립니다. 연결된 원격 머신에서는 기본값이 `ui.remoteSessionView`이고, **머신 → 편집**의 **sessionView**로 머신마다 덮어쓸 수 있습니다.
+
+채팅은 머신 배지가 있는 일반 대화 화면이며, 원격 `session.event`마다 `machine`이 붙습니다. 터미널은 그 머신의 `snowpea` 프로필 터미널을 만들거나 재사용합니다.
+
+원격 채팅은 로컬과 같은 프록시 메서드(`session.resume`, `session.prompt`, `session.interrupt` 등)를 씁니다. Jarvis가 원격을 다룰 때는 [Jarvis 원격](jarvis.md#원격-머신)의 별도 경로를 씁니다.
