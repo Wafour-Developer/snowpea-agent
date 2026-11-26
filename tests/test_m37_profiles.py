@@ -125,6 +125,45 @@ def test_launch_argv_runs_the_cli_in_the_interactive_shell() -> None:
     assert Path(fish[0]).name in ("bash", "sh") and fish[2].endswith("exec /usr/bin/fish -i")
 
 
+@pytest.mark.parametrize("cli", profiles.CLI_PROFILES)
+async def test_external_cli_ignores_keep_shell(daemon: Any, http: aiohttp.ClientSession,
+                                                tmp_path: Path, fake_cli: Path,
+                                                cli: str) -> None:
+    project = await _project(http, daemon, tmp_path)
+    with env_vars(SHELL="/bin/bash"):
+        spec = await profiles.build_spec(
+            daemon.core, human(), _params(profile=cli, cwd=str(project), trust=True), str(project))
+        assert spec.argv[2] == 'exec "$0" "$@"'
+        assert spec.argv[3] == str(fake_cli)
+
+
+@pytest.mark.asyncio
+async def test_snowpea_profile_honors_keep_shell(daemon: Any, http: aiohttp.ClientSession,
+                                                 tmp_path: Path,
+                                                 monkeypatch: pytest.MonkeyPatch) -> None:
+    project = await _project(http, daemon, tmp_path)
+    fake = tmp_path / "snowpea-fake"
+    fake.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake.chmod(0o755)
+    monkeypatch.setattr(profiles, "snowpea_bin", lambda: str(fake))
+    with env_vars(SHELL="/bin/bash"):
+        spec = await profiles.build_spec(
+            daemon.core, human(),
+            _params(profile="snowpea", cwd=str(project), snowpeaSessionId=None), str(project))
+        assert spec.argv[2].endswith('exec /bin/bash -i')
+
+
+def test_external_exit_maps_to_status() -> None:
+    from snowpea_core.terminal.status import StatusMachine
+
+    ok = StatusMachine()
+    ok.on_exit(0)
+    assert ok.state == "done"
+    bad = StatusMachine()
+    bad.on_exit(3)
+    assert bad.state == "error"
+
+
 def test_environment_drops_snowpea_secrets() -> None:
     env = profiles.terminal_env({"PATH": "/bin", "SNOWPEA_TOKEN": "secret", "HOME": "/h",
                                  "TELEGRAM_BOT_TOKEN": "x", "CLAUDECODE": "1",

@@ -30,12 +30,14 @@ policy and ``--full-auto`` are gone in 0.170, so they are not offered.
   the adapter's forbidden flags; only the grant's :class:`proc.BypassArgs`
   lets those flags out.
 
-**Launch.**  A CLI runs inside the person's interactive shell, by the
+**Launch.**  External CLIs run inside the person's interactive shell, by the
 absolute path discovery resolved (an override only once the person
-confirmed it): ``[$SHELL, "-ic", '"$0" "$@"; exec $SHELL -i', <cli>, args…]``,
-so PATH, nvm and the like hold, and the pane drops back to a shell when the
-CLI exits (``terminals.keepShell``).  On Windows the CLI is started directly,
-under ``cmd /k`` while ``keepShell`` is on.
+confirmed it): ``[$SHELL, "-ic", 'exec "$0" "$@"', <cli>, args…]``, so PATH,
+nvm and the like hold, and the CLI replaces the shell so the pane ends when
+the CLI exits.  The snowpea TUI uses the same wrapper with
+``terminals.keepShell`` (default true) to drop back to a shell instead.
+On Windows external CLIs start directly; ``cmd /k`` applies only while
+``keepShell`` is on for the snowpea profile.
 
 **Environment.**  The person's environment minus every ``SNOWPEA_*`` variable
 (the daemon token among them), messenger credentials and the switches that
@@ -559,7 +561,7 @@ async def _cli_spec(core: Core, conn: Any, params: Any, cwd: str) -> TerminalSpe
     if grant is not None:
         labels["snowpea.grant"] = grant.ledger_id
     return TerminalSpec(
-        argv=launch_argv(argv, keep_shell=_keep_shell(core)), env=terminal_env(), cwd=cwd,
+        argv=launch_argv(argv, keep_shell=False), env=terminal_env(), cwd=cwd,
         profile=cli, options=[o.id for o in chosen], dangerous=dangerous,
         external={"cli": cli, "sessionId": session_id} if session_id else {"cli": cli},
         submit_key=definition.submit_key, rules=definition.rules, labels=labels,

@@ -25,7 +25,7 @@
 
 앱에서는 프로젝트의 **+** 메뉴 → **새 외부 세션…**을 엽니다. 대화상자에는 먼저 **새 세션 시작**(Start new session)이 나오고, 그 아래에 프로젝트의 세션이 최신순으로 나옵니다. 세션을 고르면 터미널에서 재개합니다. 시작하기 전에 권한 옵션([아래](#권한-옵션))을 고르세요. 위험한 옵션을 고르면 그 자리에 인라인 경고가 나옵니다. 별도의 확인 대화상자는 없습니다.
 
-CLI는 사용자의 대화형 셸 안에서 실행되므로 PATH나 nvm 같은 설정이 그대로 적용됩니다. CLI가 끝나면 `terminals.keepShell`이 꺼져 있지 않은 한 패널은 셸로 돌아갑니다.
+CLI는 사용자의 대화형 셸 안에서 실행되므로 PATH나 nvm 같은 설정이 그대로 적용됩니다. CLI가 끝나면 패널도 끝나고 IDE는 빈 상태로 돌아갑니다(종료 코드 0은 정상, 그 외는 오류).
 
 ## 터미널에서 본 snowpea 세션
 
@@ -42,7 +42,7 @@ snowpea 세션은 두 가지 방식으로 볼 수 있습니다. 채팅으로 보
 | `ui.sessionView` | `chat` | 이 컴퓨터에서 snowpea 세션을 여는 기본 보기 |
 | `ui.remoteSessionView` | `chat` | 원격 머신에서 snowpea 세션을 여는 기본 보기 |
 | `terminals.max` | `16` | 동시에 실행할 수 있는 터미널 수(1~64) |
-| `terminals.keepShell` | `true` | CLI가 끝나면 패널을 닫지 않고 셸로 돌아감 |
+| `terminals.keepShell` | `true` | snowpea TUI가 끝나면 패널을 닫지 않고 셸로 돌아감(shell·snowpea 프로필만) |
 | `terminals.headlessCols` / `terminals.headlessRows` | `160` / `48` | 붙은 화면이 없을 때 터미널이 쓰는 크기 |
 | `terminals.sounds.blocked` | `true` | 터미널이 사용자의 답을 기다릴 때 소리와 알림 |
 | `terminals.sounds.done` | `true` | 터미널이 끝났는데 사용자가 보고 있지 않을 때 소리와 알림 |

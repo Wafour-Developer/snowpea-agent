@@ -1279,7 +1279,8 @@ class TerminalsSettings(_Model):
 
     #: Most terminals at once.
     max: int = Field(default=16, ge=1, le=64)
-    #: After the CLI exits, drop back to the person's shell instead of closing.
+    #: After the snowpea TUI exits, drop back to the person's shell instead of
+    #: closing.  External CLI profiles always end when the CLI exits.
     keepShell: bool = True
     #: Size while no viewer is attached.
     headlessCols: int = Field(default=160, ge=40, le=500)

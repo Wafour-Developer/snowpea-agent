@@ -208,6 +208,11 @@ def test_remote_login_never_types_into_a_snowpea_terminal(tmp_path: Path) -> Non
 # -- L6: Windows cmd /k ------------------------------------------------------------
 
 
+def test_windows_external_cli_never_uses_cmd_k() -> None:
+    cli = profiles.windows_launch_argv([r"C:\cli.exe", "--x"], keep_shell=False, comspec="cmd.exe")
+    assert cli == [r"C:\cli.exe", "--x"]
+
+
 def test_windows_cmd_arguments_are_escaped() -> None:
     argv = profiles.windows_launch_argv([r"C:\tools&x\cli.exe", "--mode=a|b", r"C:\My Tools\x"],
                                         keep_shell=True, comspec="cmd.exe")

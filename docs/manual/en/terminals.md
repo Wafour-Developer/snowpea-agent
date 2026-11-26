@@ -25,7 +25,7 @@ An external session always opens as a terminal, on this computer and on a [remot
 
 In the app, the project's **+** menu → **New external session…** opens a dialog with **Start new session** first, then the project's sessions, newest first. Choosing a session resumes it in a terminal. Pick the permission option before you start ([below](#permission-options)): a dangerous one shows an inline warning, and there is no separate confirm dialog.
 
-The CLI runs inside your own interactive shell, so your PATH and tools such as nvm still apply. When the CLI exits, the pane drops back to the shell, unless `terminals.keepShell` is off.
+The CLI runs inside your own interactive shell, so your PATH and tools such as nvm still apply. When the CLI exits, the pane ends and the IDE returns to its empty state (exit code 0 is normal; anything else is an error).
 
 ## A snowpea session in a terminal
 
@@ -42,7 +42,7 @@ Every snowpea session can be shown two ways: as the chat, or as the snowpea CLI 
 | `ui.sessionView` | `chat` | the default view of a snowpea session on this computer |
 | `ui.remoteSessionView` | `chat` | the default view of a snowpea session on a remote machine |
 | `terminals.max` | `16` | most terminals at once (1 to 64) |
-| `terminals.keepShell` | `true` | after the CLI exits, drop back to the shell instead of closing the pane |
+| `terminals.keepShell` | `true` | after the snowpea TUI exits, drop back to the shell instead of closing the pane (shell and snowpea profiles only) |
 | `terminals.headlessCols` / `terminals.headlessRows` | `160` / `48` | the size a terminal uses while no viewer is attached |
 | `terminals.sounds.blocked` | `true` | sound and toast when a terminal needs you |
 | `terminals.sounds.done` | `true` | sound and toast when a terminal finishes and you are not looking |
