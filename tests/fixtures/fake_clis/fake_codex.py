@@ -3,6 +3,9 @@
 
     fake_codex.py --version
     fake_codex.py app-server
+    fake_codex.py [flags] [resume <id>]
+        interactive terminal (what ``profiles.build_spec`` launches): banner,
+        echoes stdin, stays up until EOF or ``exit``/``quit``.
 
 Client methods: ``initialize`` (+ ``initialized`` notification), ``account/read``,
 ``thread/start``, ``thread/resume``, ``thread/list``, ``thread/read``,
@@ -414,15 +417,33 @@ class Codex:
         return 0
 
 
+_EXIT_CMDS = frozenset({"exit", "quit", "/exit"})
+
+
+def interactive_terminal() -> int:
+    """The person's interactive codex in a terminal pane: liveness until EOF."""
+    print("fake codex (interactive)", flush=True)
+    try:
+        for line in sys.stdin:
+            text = line.rstrip("\n\r")
+            c.log("in", text)
+            if text.strip().lower() in _EXIT_CMDS:
+                break
+            if text.strip():
+                print(f"> {text}", flush=True)
+    finally:
+        c.log("exit", 0)
+    return 0
+
+
 def main() -> int:
     if c.version_requested(VERSION):
         return 0
     c.log_start()
     args = sys.argv[1:]
-    if not args or args[0] != "app-server":
-        print("fake codex: only `app-server` is supported", file=sys.stderr)
-        return 2
-    return Codex().run()
+    if args and args[0] == "app-server":
+        return Codex().run()
+    return interactive_terminal()
 
 
 if __name__ == "__main__":

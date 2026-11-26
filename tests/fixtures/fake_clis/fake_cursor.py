@@ -204,6 +204,25 @@ def run_print() -> int:
     return 0
 
 
+_EXIT_CMDS = frozenset({"exit", "quit", "/exit"})
+
+
+def interactive_terminal() -> int:
+    """Interactive cursor-agent in a terminal pane: liveness until EOF."""
+    print("fake cursor-agent (interactive)", flush=True)
+    try:
+        for line in sys.stdin:
+            text = line.rstrip("\n\r")
+            c.log("in", text)
+            if text.strip().lower() in _EXIT_CMDS:
+                break
+            if text.strip():
+                print(f"> {text}", flush=True)
+    finally:
+        c.log("exit", 0)
+    return 0
+
+
 def help_text() -> str:
     choices = ", ".join(f'"{m}"' for m in c.help_modes("FAKE_CURSOR_MODES", ["plan", "ask"]))
     return (
@@ -239,8 +258,7 @@ def main() -> int:
         print("auto - Auto (default)\ncomposer-fake - Composer fake")
         return 0
     if "-p" not in args and "--print" not in args:
-        print("fake cursor-agent: only print mode is supported", file=sys.stderr)
-        return 2
+        return interactive_terminal()
     return run_print()
 
 

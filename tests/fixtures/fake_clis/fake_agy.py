@@ -291,20 +291,40 @@ class Agy:
         return 0
 
 
-def fake_terminal() -> int:
-    conversation = c.arg_value("--conversation") or c.new_id()
+_EXIT_CMDS = frozenset({"exit", "quit", "/exit"})
+
+
+def _presence_lock(conversation: str | None) -> object | None:
     state = os.environ.get("FAKE_CLI_STATE_DIR")
-    handle = None
-    if state and fcntl is not None:
-        path = os.path.join(state, "presence", f"{conversation}.lock")
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        handle = open(path, "a+")
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-    for _line in sys.stdin:
-        pass
-    if handle is not None:
-        handle.close()
+    if not state or not conversation or fcntl is None:
+        return None
+    path = os.path.join(state, "presence", f"{conversation}.lock")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    handle = open(path, "a+")
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    return handle
+
+
+def interactive_terminal() -> int:
+    """Interactive agy in a terminal pane (with or without ``--fake-terminal``)."""
+    print("fake agy (interactive)", flush=True)
+    conversation = c.arg_value("--conversation")
+    handle = _presence_lock(conversation)
+    try:
+        for line in sys.stdin:
+            text = line.rstrip("\n\r")
+            c.log("in", text)
+            if text.strip().lower() in _EXIT_CMDS:
+                break
+    finally:
+        if handle is not None:
+            handle.close()
+        c.log("exit", 0)
     return 0
+
+
+def fake_terminal() -> int:
+    return interactive_terminal()
 
 
 def main() -> int:
@@ -320,10 +340,9 @@ def main() -> int:
         print("gemini-fake\tGemini Fake")
         print("gemini-fake-low\tGemini Fake (Low)")
         return 0
-    if not sys.argv[1:] or sys.argv[1] != "acp":
-        print("fake agy: only `acp` is supported", file=sys.stderr)
-        return 2
-    return Agy().run()
+    if sys.argv[1:2] == ["acp"]:
+        return Agy().run()
+    return interactive_terminal()
 
 
 if __name__ == "__main__":
