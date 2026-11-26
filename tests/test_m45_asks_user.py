@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -12,7 +13,7 @@ from snowpea_core.config.settings import Settings
 from snowpea_core.prompts import tool_descriptions
 from snowpea_core.server.protocol import CAPABILITIES, PROTOCOL_VERSION, HostToolSpec
 from snowpea_core.session.session import Session
-from snowpea_core.tools import asks_user
+from snowpea_core.tools import asks_user, host_tools
 from snowpea_core.tools.host_tools import HOST_TOOLS
 from snowpea_core.tools.registry import ToolRegistry, register_builtin_tools
 from snowpea_core.tools.tool_search import render
@@ -40,6 +41,18 @@ def _host_conn() -> Any:
         client_kind="browser",
         on_close=[],
     )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_global_host_tools() -> Iterator[None]:
+    saved_hosts = dict(HOST_TOOLS._hosts)
+    saved_gone = dict(HOST_TOOLS._gone)
+    yield
+    HOST_TOOLS._hosts.clear()
+    HOST_TOOLS._hosts.update(saved_hosts)
+    HOST_TOOLS._gone.clear()
+    HOST_TOOLS._gone.update(saved_gone)
+    host_tools._invalidate_tool_prompt()
 
 
 ALWAYS = asks_user.SUFFIX["always"]
