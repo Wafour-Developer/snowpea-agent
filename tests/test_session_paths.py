@@ -165,7 +165,7 @@ def test_the_prompt_names_the_resolved_folders() -> None:
     assert f"Reports, documents, exports and other results go in {WS}/artifacts" in text
     assert (
         "Downloaded files go in .snowpea-downloads/ in the results folder: "
-        f"{WS}/artifacts/.snowpea-downloads; look there first"
+        f"{WS}/artifacts/.snowpea-downloads; use glob or grep with path set to that folder"
     ) in text
     assert f"Only throwaway files go in {WS}/tmp" in text
     assert "Code for a coding project goes in the project tree where it belongs." in text
@@ -176,7 +176,8 @@ def test_the_prompt_defaults_to_the_workdir() -> None:
     text = prompt_env.environment_lines(prompt_env.Environment(workdir="/w", workspace=WS))
     assert "other results go in /w\n" in text
     assert (
-        "Downloaded files go in .snowpea-downloads/ in the project: /w/.snowpea-downloads;"
+        "Downloaded files go in .snowpea-downloads/ in the project: /w/.snowpea-downloads; "
+        "use glob or grep with path set to that folder"
     ) in text
 
 

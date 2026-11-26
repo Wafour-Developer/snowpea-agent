@@ -177,7 +177,12 @@ async def _python_grep(
         lines.extend(found)
         if len(lines) >= limit + 1:
             break
-    return _render(lines, pattern, limit, glob_tools.skipped_note(walked, locks))
+    return _render(
+        lines,
+        pattern,
+        limit,
+        glob_tools.skipped_note(walked, locks, ctx=ctx, search_root=path),
+    )
 
 
 def _render(lines: list[str], pattern: str, limit: int, note: str = "") -> ToolResult:
@@ -213,7 +218,9 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     top = glob_tools.display_root(ctx, path)
     shown_root = path if top is None else top
 
-    if await has_ripgrep(ctx):
+    if await has_ripgrep(ctx) and not (
+        not is_file and glob_tools.search_root_inside_downloads(ctx, path)
+    ):
         return await _ripgrep(
             ctx, pattern, shown_root, glob, limit, ignore_case, is_file=is_file
         )

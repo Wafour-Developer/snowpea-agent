@@ -743,8 +743,8 @@ def file_places_lines(env: Environment) -> list[str]:
         "- Where files go:",
         "  - Code for a coding project goes in the project tree where it belongs.",
         f"  - Reports, documents, exports and other results go in {results}",
-        f"  - Downloaded files go in .snowpea-downloads/ in {where}: {downloads}; look "
-        "there first when you need a downloaded file.",
+        f"  - Downloaded files go in .snowpea-downloads/ in {where}: {downloads}; use "
+        "glob or grep with path set to that folder when you need a downloaded file.",
         f"  - Only throwaway files go in {scratch}",
         "  - If the person names a place, use it.",
     ]
