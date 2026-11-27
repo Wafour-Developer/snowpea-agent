@@ -77,6 +77,11 @@ from snowpea_core.server.protocol import (
     UsageSummaryParams,
     UsageSummaryResult,
 )
+from snowpea_core.session.notices import (
+    MAX_NOTICES,
+    clip_notice_text,
+    persist_session_notices,
+)
 from snowpea_core.session.workspace import MAX_ARTIFACTS, ensure_workspace, list_artifacts
 from snowpea_core.tools.host_tools import HOST_TOOLS, HostToolError, content_store, runs_on_host
 
@@ -562,11 +567,6 @@ async def session_set_browser_provider_handler(
     return SessionSetBrowserProviderResult(sessionId=session.id, browserProvider=params.provider)
 
 
-#: Longest ``session.notice`` text kept; notices beyond this many are dropped.
-NOTICE_CHARS = 2000
-MAX_NOTICES = 20
-
-
 async def usage_summary_handler(
     _conn: RpcConnection, params: UsageSummaryParams, core: Core
 ) -> UsageSummaryResult:
@@ -631,11 +631,13 @@ async def session_notice_handler(
 ) -> Ok:
     """``session.notice`` — queue a [system] line for the next model call."""
     session = _session(core, params.sessionId)
-    text = " ".join(params.text.split())[:NOTICE_CHARS]
+    text = clip_notice_text(params.text)
     if not text:
         raise RpcError(errors.INVALID_PARAMS, "text is empty")
     if len(session.pending_notices) < MAX_NOTICES:
         session.pending_notices.append(text)
+        if core.store is not None:
+            await persist_session_notices(core.store, session)
     return Ok(ok=True)
 
 
@@ -895,12 +897,16 @@ async def session_continue_handler(
     if running:
         agent_loop.note_caller(session, session.current_turn or "", who)
         session.pending_notices.append(f"({reason}) {note}")
+        if core.store is not None:
+            await persist_session_notices(core.store, session)
         return SessionContinueResult(started=False, queued=True)
     now = time.monotonic()
     if now - session.last_system_start < CONTINUE_MIN_INTERVAL_SEC:
         # Too soon for another system turn; the note is not lost, it joins the
         # next model call like a session.notice.
         session.pending_notices.append(f"({reason}) {note}")
+        if core.store is not None:
+            await persist_session_notices(core.store, session)
         return SessionContinueResult(started=False, queued=True)
     session.last_system_start = now
     turn_id = agent_loop.start_turn(

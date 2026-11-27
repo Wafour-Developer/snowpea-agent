@@ -447,6 +447,9 @@ async def subagent_wait(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             continue
         result = run.task.result()
         drop_live_evidence(ctx.session, result.agent_id, result.session_id)
+        from snowpea_core.session.notices import schedule_persist
+
+        schedule_persist(ctx.core, ctx.session)
         sections.append(f"{head}\n{render_report(result)}")
     return ToolResult(ok=True, output="\n\n".join(sections))
 
@@ -525,6 +528,9 @@ def _track(
         turn = getattr(session, "turn_task", None)
         if turn is not None and not turn.done():
             session.pending_notices.append(note)
+            from snowpea_core.session.notices import schedule_persist
+
+            schedule_persist(core, session)
             return
         from snowpea_core.agent import loop as agent_loop
 

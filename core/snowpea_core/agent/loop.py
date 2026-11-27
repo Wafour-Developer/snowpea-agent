@@ -396,7 +396,7 @@ async def finish_turn(core: Core, session: Session, turn_id: str, reason: str) -
     # its list on that announcement must already see this turn as over.
     session.done_turn = turn_id
     await _mark_turn_finished(core, session, reason)
-    await _flush_notices(session)
+    await _flush_notices(session, core)
     if (
         reason in {"interrupted", "denied"}
         and not session.is_subagent
@@ -1980,12 +1980,17 @@ def _busy_policy(core: Core) -> str:
     return value if value in {"steer", "queue"} else "steer"
 
 
-async def _flush_notices(session: Session) -> int:
+async def _flush_notices(session: Session, core: Core | None = None) -> int:
     """Hand ``session.notice`` lines to the model before its next call (1.7.0)."""
     if not session.pending_notices:
         return 0
     lines = _bounded_notice_lines(session.pending_notices)
     session.pending_notices.clear()
+    store = getattr(core, "store", None)
+    if store is not None:
+        from snowpea_core.session import notices as session_notices
+
+        await session_notices.clear_session_notices(store, session)
     session.history.append(
         ChatMessage(
             role="user",
@@ -2019,6 +2024,10 @@ def _steer_after_stop(session: Session, decision: Any, core: Core | None = None)
     text = person_intent.with_language(core, session, decision.text)
     if decision.via == "notice":
         session.pending_notices.append(text)
+        if core is not None:
+            from snowpea_core.session.notices import schedule_persist
+
+            schedule_persist(core, session)
         return
     session.history.append(
         ChatMessage(
@@ -2084,7 +2093,7 @@ def _clip_notice_line(text: str) -> str:
 async def _steer_queued_turns(core: Core, session: Session) -> int:
     """Fold queued prompts into the running turn as fresh user messages."""
     session.user_waiting.clear()
-    await _flush_notices(session)
+    await _flush_notices(session, core)
     while session.lead_messages:
         body = f"{LEAD_PREFIX}{session.lead_messages.pop(0)}"
         session.history.append(
@@ -2761,7 +2770,7 @@ async def _drive(
         session.fixed_tool_list = current.fixed_tool_list
         # Persist each safe round boundary, including steering and child evidence.
         # No outstanding tool-call/result pair is split by these notices.
-        await _flush_notices(session)
+        await _flush_notices(session, core)
         _flush_runtime_context(core, session)
         await persist_history(getattr(core, "store", None), session)
         if wall_minutes and monotonic() - turn_started_at >= wall_minutes * 60:
@@ -3187,7 +3196,7 @@ async def _drive(
         if session.conclude_turn:
             # A tool said this batch finishes the turn (M16 P1.4).
             session.conclude_turn = False
-            await _flush_notices(session)
+            await _flush_notices(session, core)
             await finish_turn(core, session, turn_id, "complete")
             return "complete"
         progress.observe_round(session.history.snapshot())
@@ -4081,7 +4090,12 @@ async def _run_started_call(
     )
     # Context a result carries goes out with the session notices, at the round
     # boundary: never between the results of one batch (M16 P1.4).
-    session.pending_notices.extend(note for note in result.contexts if note and note.strip())
+    added = [note for note in result.contexts if note and note.strip()]
+    if added:
+        session.pending_notices.extend(added)
+        from snowpea_core.session.notices import schedule_persist
+
+        schedule_persist(core, session)
     if result.concludes_turn:
         session.conclude_turn = True
     if result.ok and result.meta and (result.meta.get("image") or result.meta.get("images")):

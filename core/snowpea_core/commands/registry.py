@@ -211,7 +211,7 @@ class CommandContext:
             from snowpea_core.session.manager import persist_history
 
             self._start_history()
-            await _flush_notices(self.session)
+            await _flush_notices(self.session, self.core)
             self.session.history.append(
                 ChatMessage(
                     role="assistant", content=_clip_command_history(_redact_command_text(text))

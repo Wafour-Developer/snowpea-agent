@@ -406,6 +406,16 @@ class SessionManager:
         if row.get("agent") and session.agent is None:
             # Re-applied (prompt, tools, rounds) at the next turn (addendum 17).
             session.agent = row.get("agent")
+        # Live rows after boot: times come from the event log until something
+        # moves them (same grouped queries as session.list closed rows, 1.55.0).
+        last_events = await self.store.last_events([session_id])
+        if session_id in last_events:
+            session.last_activity_at = last_events[session_id][1]
+        user_times = await self.store.last_user_times([session_id])
+        session.last_user_at = user_times.get(session_id)
+        from snowpea_core.session import notices as session_notices
+
+        await session_notices.load_into_session(session, self.store)
         existing = self._sessions.get(session.id)
         if existing is not None:  # created meanwhile by session.create or another path
             return existing

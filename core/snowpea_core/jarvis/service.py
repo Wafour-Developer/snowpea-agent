@@ -669,6 +669,9 @@ class JarvisService:
         task = getattr(session, "turn_task", None)
         if task is not None and not task.done():
             session.pending_notices.append(text)
+            from snowpea_core.session.notices import schedule_persist
+
+            schedule_persist(self.core, session)
             return False
         from snowpea_core.agent import loop as agent_loop
 
@@ -703,6 +706,9 @@ class JarvisService:
         task = getattr(session, "turn_task", None)
         if task is not None and not task.done():
             session.pending_notices.append(text)
+            from snowpea_core.session.notices import schedule_persist
+
+            schedule_persist(self.core, session)
             return False, ""
         from snowpea_core.agent import loop as agent_loop
 
