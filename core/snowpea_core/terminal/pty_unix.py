@@ -15,8 +15,11 @@ import fcntl
 import os
 import signal
 import struct
+import sys
 import termios
 from collections.abc import Callable, Mapping, Sequence
+
+from snowpea_core import platform_procs
 
 SIGNALS: dict[str, int] = {
     "hup": signal.SIGHUP,
@@ -37,7 +40,18 @@ def _controlling_tty() -> None:  # pragma: no cover - runs in the child
 
 
 def session_has_processes(sid: int) -> bool:
-    """True when any live process still belongs to ``sid`` (Linux ``/proc``)."""
+    """True when any live process still belongs to ``sid`` (``/proc`` or macOS libproc)."""
+    if sys.platform == "darwin":
+        pids = platform_procs.list_all_pids()
+        if pids is None:
+            return False
+        for pid in pids:
+            try:
+                if os.getsid(pid) == sid:
+                    return True
+            except (ProcessLookupError, PermissionError):
+                continue
+        return False
     proc = "/proc"
     if not os.path.isdir(proc):
         return False
