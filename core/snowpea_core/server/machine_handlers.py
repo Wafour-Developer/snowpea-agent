@@ -157,7 +157,25 @@ async def machine_answer_handler(
     _conn: RpcConnection, params: MachineAnswerParams, core: Core
 ) -> MachineConnectResult:
     manager = ensure_manager(core)
-    if not manager.answer(params.id, params.askId, params.answer):
+    pending = manager._pending_asks.get(params.id, {}).get(params.askId)  # noqa: SLF001
+    if pending is not None and pending.kind in ("password", "passphrase"):
+        from snowpea_core.server.person_gate import is_person
+
+        if not is_person(_conn, local=True):
+            raise RpcError(
+                errors.JARVIS_PERSON_ONLY,
+                "only a local person may answer a machine password ask",
+                {"reason": "person_only"},
+            )
+        if params.answer and not params.secret:
+            raise RpcError(
+                errors.INVALID_PARAMS,
+                "a password answer needs secret",
+                {"field": "secret"},
+            )
+    if not manager.answer(
+        params.id, params.askId, params.answer, secret=params.secret
+    ):
         raise RpcError(errors.INVALID_PARAMS, "no pending ask", {"askId": params.askId})
     row = next((r for r in manager.rows() if r.id == params.id), None)
     if row is None:

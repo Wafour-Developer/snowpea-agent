@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.80.0";
+export const PROTOCOL_VERSION = "1.81.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -4210,8 +4210,10 @@ export interface MachineAddResult {
     host?: string | null;
     id: string;
     keyType?: string | null;
-    kind: "hostKey" | "install";
+    kind: "hostKey" | "install" | "password" | "passphrase";
     question?: string | null;
+    /** 1.81.0 (capability machinePassword): ssh account for password asks. */
+    user?: string | null;
     version?: string | null;
   } | null;
   autoConnect?: boolean;
@@ -4235,6 +4237,8 @@ export interface MachineAnswerParams {
   answer: boolean;
   askId: string;
   id: string;
+  /** 1.81.0 (capability machinePassword): password or key passphrase for a password ask when answer is true; never stored, logged or echoed. */
+  secret?: string | null;
 }
 
 /** `machine.answer` result. */
@@ -4244,8 +4248,10 @@ export interface MachineAnswerResult {
     host?: string | null;
     id: string;
     keyType?: string | null;
-    kind: "hostKey" | "install";
+    kind: "hostKey" | "install" | "password" | "passphrase";
     question?: string | null;
+    /** 1.81.0 (capability machinePassword): ssh account for password asks. */
+    user?: string | null;
     version?: string | null;
   } | null;
   error?: string | null;
@@ -4264,8 +4270,10 @@ export interface MachineConnectResult {
     host?: string | null;
     id: string;
     keyType?: string | null;
-    kind: "hostKey" | "install";
+    kind: "hostKey" | "install" | "password" | "passphrase";
     question?: string | null;
+    /** 1.81.0 (capability machinePassword): ssh account for password asks. */
+    user?: string | null;
     version?: string | null;
   } | null;
   error?: string | null;
@@ -4294,8 +4302,10 @@ export interface MachineListResult {
       host?: string | null;
       id: string;
       keyType?: string | null;
-      kind: "hostKey" | "install";
+      kind: "hostKey" | "install" | "password" | "passphrase";
       question?: string | null;
+      /** 1.81.0 (capability machinePassword): ssh account for password asks. */
+      user?: string | null;
       version?: string | null;
     } | null;
     autoConnect?: boolean;
@@ -4343,8 +4353,10 @@ export interface MachineUpdateResult {
     host?: string | null;
     id: string;
     keyType?: string | null;
-    kind: "hostKey" | "install";
+    kind: "hostKey" | "install" | "password" | "passphrase";
     question?: string | null;
+    /** 1.81.0 (capability machinePassword): ssh account for password asks. */
+    user?: string | null;
     version?: string | null;
   } | null;
   autoConnect?: boolean;
@@ -11755,8 +11767,10 @@ export interface MachineChangedPayload {
       host?: string | null;
       id: string;
       keyType?: string | null;
-      kind: "hostKey" | "install";
+      kind: "hostKey" | "install" | "password" | "passphrase";
       question?: string | null;
+      /** 1.81.0 (capability machinePassword): ssh account for password asks. */
+      user?: string | null;
       version?: string | null;
     } | null;
     autoConnect?: boolean;

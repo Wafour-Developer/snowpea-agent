@@ -30,7 +30,7 @@ SETTINGS = {"scheduler": {"catchUpSec": 3600, "tickSec": 3600}}
 
 
 async def test_capability_and_version() -> None:
-    assert "jobMissedRuns" in CAPABILITIES and PROTOCOL_VERSION == "1.80.0"
+    assert "jobMissedRuns" in CAPABILITIES and PROTOCOL_VERSION == "1.81.0"
 
 
 async def test_a_run_missed_past_the_window_is_recorded_announced_and_told(

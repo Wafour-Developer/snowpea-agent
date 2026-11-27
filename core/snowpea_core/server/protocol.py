@@ -10499,10 +10499,14 @@ class TunnelChangedEvent(Payload):
 
 class MachineAsk(Payload):
     id: str
-    kind: Literal["hostKey", "install"]
+    kind: Literal["hostKey", "install", "password", "passphrase"]
     fingerprint: str | None = None
     keyType: str | None = None
     host: str | None = None
+    user: str | None = Field(
+        default=None,
+        description="1.81.0 (capability machinePassword): ssh account for password asks.",
+    )
     question: str | None = None
     version: str | None = None
 
@@ -10567,6 +10571,13 @@ class MachineAnswerParams(Payload):
     id: str
     askId: str
     answer: bool
+    secret: str | None = Field(
+        default=None,
+        description=(
+            "1.81.0 (capability machinePassword): password or key passphrase for a "
+            "password ask when answer is true; never stored, logged or echoed."
+        ),
+    )
 
 
 class MachineConnectResult(Payload):
@@ -14252,6 +14263,8 @@ CAPABILITIES: list[str] = [
     # 1.80.0: HostToolSpec.asksUser; core appends a fixed tag to built-in and host
     # tool descriptions from the mode matrix and this field.
     "toolAsksUser",
+    # 1.81.0 (M53): ssh password and key-passphrase login for remote machines.
+    "machinePassword",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in

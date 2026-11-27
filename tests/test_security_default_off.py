@@ -79,7 +79,7 @@ def test_a_degraded_security_section_fails_closed_to_on() -> None:
 
 
 def test_protocol_and_capability() -> None:
-    assert PROTOCOL_VERSION == "1.80.0"
+    assert PROTOCOL_VERSION == "1.81.0"
     assert "securityDefaultOff" in CAPABILITIES
 
 

@@ -82,7 +82,7 @@ def test_parse_unknown_to_never() -> None:
 
 
 def test_capability_and_protocol_version() -> None:
-    assert PROTOCOL_VERSION == "1.80.0"
+    assert PROTOCOL_VERSION == "1.81.0"
     assert "toolAsksUser" in CAPABILITIES
 
 

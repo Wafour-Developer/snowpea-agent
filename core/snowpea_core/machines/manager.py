@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import sys
 import threading
 import uuid
 from collections import defaultdict
@@ -23,6 +24,7 @@ from snowpea_core.machines.proxy import (
 )
 from snowpea_core.machines.registry import MachineRegistry
 from snowpea_core.machines.ssh import HostKeys, ssh_runner
+from snowpea_core.machines.ssh_askpass import SshAskpassBridge
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import PROTOCOL_VERSION, MachineAsk, MachineRow
@@ -64,6 +66,7 @@ class PendingAsk:
     fields: dict[str, Any]
     event: threading.Event = field(default_factory=threading.Event)
     answer: list[bool] = field(default_factory=list)
+    secret: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -105,6 +108,27 @@ class _Asks:
                 log.warning("machine %s ask %s timed out", self._machine_id, kind)
                 return False
             return box.answer[-1] if box.answer else False
+        finally:
+            self._live.ask = None
+            self._pending.pop(ident, None)
+            if self._live.status == "asking":
+                self._live.status = "connecting"
+            self._announce()
+
+    def ask_secret(self, kind: str, **fields: Any) -> str | None:
+        ident = uuid.uuid4().hex
+        box = PendingAsk(kind=kind, fields=fields)
+        self._pending[ident] = box
+        self._live.ask = box
+        self._live.status = "asking"
+        self._announce()
+        try:
+            if not box.event.wait(ASK_TIMEOUT_SEC):
+                log.warning("machine %s ask %s timed out", self._machine_id, kind)
+                return None
+            if not box.answer or not box.answer[-1]:
+                return None
+            return box.secret[-1] if box.secret else None
         finally:
             self._live.ask = None
             self._pending.pop(ident, None)
@@ -205,44 +229,83 @@ class MachineManager:
                 return ident, box
         return None
 
-    def answer(self, machine_id: str, ask_id: str, accepted: bool) -> bool:
+    def answer(
+        self, machine_id: str, ask_id: str, accepted: bool, *, secret: str | None = None
+    ) -> bool:
         box = self._pending_asks.get(machine_id, {}).get(ask_id)
         if box is None or box.event.is_set():
             return False
+        if accepted and box.kind in ("password", "passphrase"):
+            if not secret:
+                return False
+            box.secret.append(secret)
         box.answer.append(accepted)
         box.event.set()
         self._announce_sync()
         return True
 
-    def _open_session(self, machine_id: str, live: LiveConnection, rec) -> None:
+    def _password_prompt(
+        self, machine_id: str, live: LiveConnection, rec: Any, prompt: str
+    ) -> str | None:
+        kind = "passphrase" if "passphrase" in prompt.lower() else "password"
+        target = rec.target()
+        asks = _Asks(machine_id, self._pending_asks[machine_id], live, self._announce_sync)
+        return asks.ask_secret(
+            kind,
+            question=prompt,
+            host=target.label,
+            user=target.user or rec.user,
+        )
+
+    def _open_session(
+        self, machine_id: str, live: LiveConnection, rec, *, interactive: bool
+    ) -> None:
         target = rec.target()
         known = str(self.registry.known_hosts_file())
         live.status = "connecting"
         asks = _Asks(machine_id, self._pending_asks[machine_id], live, self._announce_sync)
         ssh_bin = self._ssh or remote.find_ssh_tool("ssh") or "ssh"
-        session = RemoteSession(
-            target,
-            local_protocol=PROTOCOL_VERSION,
-            confirm=lambda q: asks.ask("install", question=q, version=__version__),
-            batch=True,
-            ssh=ssh_bin,
-            run=ssh_runner(None),
-        )
-        host = HostKeys(session._ssh, asks, known_hosts=known)  # noqa: SLF001
-        options = host.ensure(target)
-        identity = self.registry.ssh_identity(rec)
-        session._options = [  # noqa: SLF001
-            *options,
-            f"UserKnownHostsFile={known}",
-            *identity,
-        ]
-        session._ssh_extra = list(self.registry.ssh_extra_args(rec))  # noqa: SLF001
-        advert = session.prepare()
-        live.port = session.open_tunnel(watch=False)
-        live.token = advert.token
-        live.session = session
+        bridge: SshAskpassBridge | None = None
+        extra_env = None
+        if interactive and sys.platform != "win32":
+            bridge = SshAskpassBridge(
+                lambda prompt, mid=machine_id: self._password_prompt(mid, live, rec, prompt)
+            )
+            bridge.start()
+            extra_env = bridge.env
+        try:
+            session = RemoteSession(
+                target,
+                local_protocol=PROTOCOL_VERSION,
+                confirm=lambda q: asks.ask("install", question=q, version=__version__),
+                batch=not interactive,
+                ssh=ssh_bin,
+                run=ssh_runner(None, extra_env),
+            )
+            host = HostKeys(session._ssh, asks, known_hosts=known)  # noqa: SLF001
+            options = host.ensure(target)
+            identity = self.registry.ssh_identity(rec)
+            session._options = [  # noqa: SLF001
+                *options,
+                f"UserKnownHostsFile={known}",
+                *identity,
+            ]
+            session._ssh_extra = list(self.registry.ssh_extra_args(rec))  # noqa: SLF001
+            advert = session.prepare()
+            live.port = session.open_tunnel(watch=False)
+            live.token = advert.token
+            live.session = session
+        except remote.RemoteError as exc:
+            if not interactive and exc.code == "auth":
+                raise remote.RemoteError(
+                    "needs a password: connect manually", code="auth", reason="password"
+                ) from exc
+            raise
+        finally:
+            if bridge is not None:
+                bridge.stop()
 
-    def _connect_worker(self, machine_id: str) -> None:
+    def _connect_worker(self, machine_id: str, *, interactive: bool = True) -> None:
         rec = self.registry.get(machine_id)
         if rec is None:
             return
@@ -258,10 +321,17 @@ class MachineManager:
                     raise RuntimeError("direct advert missing")
                 live.port, live.token = info.port, info.token
             else:
-                self._open_session(machine_id, live, rec)
+                self._open_session(machine_id, live, rec, interactive=interactive)
             live.status = "connected"
             self._start_supervisor(machine_id, live)
             self._schedule_jarvis_relay(machine_id)
+        except remote.RemoteError as exc:
+            live.status = "error"
+            live.error = str(exc)
+            if exc.code == "auth" and interactive:
+                log.warning("machine %s authentication failed", machine_id)
+            else:
+                log.exception("machine %s connect failed", machine_id)
         except Exception as exc:  # noqa: BLE001
             live.status = "error"
             live.error = str(exc)
@@ -312,11 +382,17 @@ class MachineManager:
                     return
                 while not stop.is_set():
                     try:
-                        self._open_session(machine_id, live, rec)
+                        self._open_session(machine_id, live, rec, interactive=False)
                         live.status = "connected"
                         self._announce_sync()
                         self._schedule_jarvis_relay(machine_id)
                         break
+                    except remote.RemoteError as exc:
+                        live.error = str(exc)
+                        live.status = "error"
+                        self._announce_sync()
+                        if exc.code == "auth":
+                            return
                     except Exception as exc:  # noqa: BLE001
                         live.error = str(exc)
                         live.status = "error"
@@ -330,11 +406,16 @@ class MachineManager:
         live.supervisor = threading.Thread(target=run, name=name, daemon=True)
         live.supervisor.start()
 
-    def connect(self, machine_id: str) -> None:
+    def connect(self, machine_id: str, *, interactive: bool = True) -> None:
         live = self._live.setdefault(machine_id, LiveConnection())
         if live.status in ("connected", "connecting", "asking"):
             return
-        threading.Thread(target=self._connect_worker, args=(machine_id,), daemon=True).start()
+        threading.Thread(
+            target=self._connect_worker,
+            args=(machine_id,),
+            kwargs={"interactive": interactive},
+            daemon=True,
+        ).start()
 
     def _cancel_asks(self, machine_id: str) -> None:
         pending = self._pending_asks.get(machine_id) or {}

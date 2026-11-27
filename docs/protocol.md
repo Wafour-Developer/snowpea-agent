@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.80.0` (semver)
+- **Protocol version:** `1.81.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.80.0"
+    "protocolVersion": "1.81.0"
   }
 }
 ```
@@ -97,6 +97,7 @@ Server capabilities advertised in the `system.hello` result:
 - `lspRestart`
 - `lspToolchainInstall`
 - `machineIdentity`
+- `machinePassword`
 - `mcp`
 - `mcpOAuth`
 - `mcpPresets`
@@ -2589,7 +2590,7 @@ Register an SSH target; a pasted key is stored locally only (1.76.0).
 
 | field | type | required | description |
 |---|---|---|---|
-| `ask` | `{ fingerprint?: string \| null; host?: string \| null; id: string; keyType?: string \| null; kind: "hostKey" \| "install"; question?: string \| null; version?: string \| null; } \| null` | no |  |
+| `ask` | `{ fingerprint?: string \| null; host?: string \| null; id: string; keyType?: string \| null; kind: "hostKey" \| "install" \| "password" \| "passphrase"; question?: string \| null; user?: string \| null; version?: string \| null; } \| null` | no |  |
 | `autoConnect` | `boolean` | no |  |
 | `error` | `string \| null` | no |  |
 | `host` | `string` | yes |  |
@@ -2617,12 +2618,13 @@ Answer a host-key or install ask from machine.connect (1.76.0).
 | `answer` | `boolean` | yes |  |
 | `askId` | `string` | yes |  |
 | `id` | `string` | yes |  |
+| `secret` | `string \| null` | no | 1.81.0 (capability machinePassword): password or key passphrase for a password ask when answer is true; never stored, logged or echoed. |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
-| `ask` | `{ fingerprint?: string \| null; host?: string \| null; id: string; keyType?: string \| null; kind: "hostKey" \| "install"; question?: string \| null; version?: string \| null; } \| null` | no |  |
+| `ask` | `{ fingerprint?: string \| null; host?: string \| null; id: string; keyType?: string \| null; kind: "hostKey" \| "install" \| "password" \| "passphrase"; question?: string \| null; user?: string \| null; version?: string \| null; } \| null` | no |  |
 | `error` | `string \| null` | no |  |
 | `status` | `"connecting" \| "connected" \| "asking" \| "error"` | yes |  |
 
@@ -2642,7 +2644,7 @@ Connect over ssh and open a tunnel to the remote daemon (1.76.0).
 
 | field | type | required | description |
 |---|---|---|---|
-| `ask` | `{ fingerprint?: string \| null; host?: string \| null; id: string; keyType?: string \| null; kind: "hostKey" \| "install"; question?: string \| null; version?: string \| null; } \| null` | no |  |
+| `ask` | `{ fingerprint?: string \| null; host?: string \| null; id: string; keyType?: string \| null; kind: "hostKey" \| "install" \| "password" \| "passphrase"; question?: string \| null; user?: string \| null; version?: string \| null; } \| null` | no |  |
 | `error` | `string \| null` | no |  |
 | `status` | `"connecting" \| "connected" \| "asking" \| "error"` | yes |  |
 
@@ -2678,7 +2680,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `machines` | `({ ask?: { fingerprint?: string \| null; host?: string \| null; id: string; keyType?: string \| null; kind: "hostKey" \| "install"; question?: string \| null; version?: string \| null; } \| null; autoConnect?: boolean; error?: string \| null; host: string; id: string; jarvisAllowed?: boolean; keyPath?: string \| null; label: string; pastedKey?: boolean; port?: number \| null; remoteCwd?: string \| null; sessionView?: "chat" \| "terminal" \| null; status?: "off" \| "connecting" \| "connected" \| "asking" \| "error"; user?: string \| null; })[]` | no |  |
+| `machines` | `({ ask?: { fingerprint?: string \| null; host?: string \| null; id: string; keyType?: string \| null; kind: "hostKey" \| "install" \| "password" \| "passphrase"; question?: string \| null; user?: string \| null; version?: string \| null; } \| null; autoConnect?: boolean; error?: string \| null; host: string; id: string; jarvisAllowed?: boolean; keyPath?: string \| null; label: string; pastedKey?: boolean; port?: number \| null; remoteCwd?: string \| null; sessionView?: "chat" \| "terminal" \| null; status?: "off" \| "connecting" \| "connected" \| "asking" \| "error"; user?: string \| null; })[]` | no |  |
 
 ### `machine.remove`
 
@@ -2719,7 +2721,7 @@ Change label, cwd, auto-connect or the per-machine Jarvis switch (1.76.0).
 
 | field | type | required | description |
 |---|---|---|---|
-| `ask` | `{ fingerprint?: string \| null; host?: string \| null; id: string; keyType?: string \| null; kind: "hostKey" \| "install"; question?: string \| null; version?: string \| null; } \| null` | no |  |
+| `ask` | `{ fingerprint?: string \| null; host?: string \| null; id: string; keyType?: string \| null; kind: "hostKey" \| "install" \| "password" \| "passphrase"; question?: string \| null; user?: string \| null; version?: string \| null; } \| null` | no |  |
 | `autoConnect` | `boolean` | no |  |
 | `error` | `string \| null` | no |  |
 | `host` | `string` | yes |  |
@@ -6526,7 +6528,7 @@ Set the sidebar order (1.47.0).
 
 | field | type | required | description |
 |---|---|---|---|
-| `machines` | `({ ask?: { fingerprint?: string \| null; host?: string \| null; id: string; keyType?: string \| null; kind: "hostKey" \| "install"; question?: string \| null; version?: string \| null; } \| null; autoConnect?: boolean; error?: string \| null; host: string; id: string; jarvisAllowed?: boolean; keyPath?: string \| null; label: string; pastedKey?: boolean; port?: number \| null; remoteCwd?: string \| null; sessionView?: "chat" \| "terminal" \| null; status?: "off" \| "connecting" \| "connected" \| "asking" \| "error"; user?: string \| null; })[]` | no |  |
+| `machines` | `({ ask?: { fingerprint?: string \| null; host?: string \| null; id: string; keyType?: string \| null; kind: "hostKey" \| "install" \| "password" \| "passphrase"; question?: string \| null; user?: string \| null; version?: string \| null; } \| null; autoConnect?: boolean; error?: string \| null; host: string; id: string; jarvisAllowed?: boolean; keyPath?: string \| null; label: string; pastedKey?: boolean; port?: number \| null; remoteCwd?: string \| null; sessionView?: "chat" \| "terminal" \| null; status?: "off" \| "connecting" \| "connected" \| "asking" \| "error"; user?: string \| null; })[]` | no |  |
 
 ### `mcp.auth.done`
 

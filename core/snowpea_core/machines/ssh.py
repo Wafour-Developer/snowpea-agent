@@ -59,12 +59,18 @@ def _exec(argv: Sequence[str]) -> subprocess.CompletedProcess[str]:
     )
 
 
-def ssh_runner(emitter: _EmitterLike | None) -> remote.Runner:
+def ssh_runner(
+    emitter: _EmitterLike | None,
+    extra_env: Callable[[], dict[str, str]] | None = None,
+) -> remote.Runner:
     """``RemoteSession``'s runner: no stdin, stderr captured, stdout never the client's pipe."""
 
     def run(
         argv: Sequence[str], stdin: str | None, capture: bool
     ) -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        if extra_env is not None:
+            env.update(extra_env())
         try:
             done = subprocess.run(  # noqa: S603 - argv built from a validated target
                 list(argv),
@@ -77,6 +83,7 @@ def ssh_runner(emitter: _EmitterLike | None) -> remote.Runner:
                 stderr=subprocess.PIPE,
                 check=False,
                 timeout=240 if capture else 1800,
+                env=env,
             )
         except subprocess.TimeoutExpired as exc:
             raise RemoteError("ssh did not answer in time", code="unreachable") from exc
