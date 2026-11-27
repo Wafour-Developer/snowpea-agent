@@ -272,6 +272,8 @@ PERSON_METHODS: dict[str, bool] = {
     "machine.connect": True,
     "machine.disconnect": True,
     "machine.answer": True,
+    "machine.sshKeys": True,
+    "machine.sshHosts": True,
     # Security review 5, M1: what runs code in the daemon or replaces it, and
     # what a project folder may make snowpea do — a local person's only.
     "extension.enable": True,

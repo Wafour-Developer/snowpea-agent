@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.81.0` (semver)
+- **Protocol version:** `1.82.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.81.0"
+    "protocolVersion": "1.82.0"
   }
 }
 ```
@@ -97,6 +97,7 @@ Server capabilities advertised in the `system.hello` result:
 - `lspRestart`
 - `lspToolchainInstall`
 - `machineIdentity`
+- `machineKeys`
 - `machinePassword`
 - `mcp`
 - `mcpOAuth`
@@ -274,7 +275,9 @@ Server capabilities advertised in the `system.hello` result:
 | [`machine.disconnect`](#machinedisconnect) | client → server | Close the tunnel; the remote daemon keeps running (1.76.0). |
 | [`machine.list`](#machinelist) | client → server | Remote machines registered on this computer (1.76.0, remoteMachines). |
 | [`machine.remove`](#machineremove) | client → server | Forget a machine and disconnect it (1.76.0). |
-| [`machine.update`](#machineupdate) | client → server | Change label, cwd, auto-connect or the per-machine Jarvis switch (1.76.0). |
+| [`machine.sshHosts`](#machinesshhosts) | client → server | Concrete ssh config host aliases on this computer (1.82.0, machineKeys). |
+| [`machine.sshKeys`](#machinesshkeys) | client → server | Candidate private keys under this computer's ~/.ssh (1.82.0, machineKeys). |
+| [`machine.update`](#machineupdate) | client → server | Change label, connection fields, cwd, auto-connect or the per-machine Jarvis switch (1.76.0; host/user/port/keyPath since 1.82.0, machineKeys). |
 | [`mcp.add`](#mcpadd) | client → server | Write an MCP server into the project or global .mcp.json and start it. |
 | [`mcp.authorize`](#mcpauthorize) | client → server | Start an OAuth sign-in for a remote MCP server; returns the consent URL (1.34.0). |
 | [`mcp.authorize.complete`](#mcpauthorizecomplete) | client → server | Finish an mcp.authorize flow with the code the host's own redirect caught. Not from a remote web login (1.55.0): jarvis_person_only, details.reason local_only. |
@@ -2700,22 +2703,58 @@ Forget a machine and disconnect it (1.76.0).
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
 
+### `machine.sshHosts`
+
+*Direction:* client → server
+
+Concrete ssh config host aliases on this computer (1.82.0, machineKeys).
+
+**Params**
+
+_No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `hosts` | `({ alias: string; hostName?: string \| null; identityFile?: string \| null; port?: number \| null; user?: string \| null; })[]` | no |  |
+
+### `machine.sshKeys`
+
+*Direction:* client → server
+
+Candidate private keys under this computer's ~/.ssh (1.82.0, machineKeys).
+
+**Params**
+
+_No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `keys` | `({ comment?: string \| null; modeOk?: boolean; name: string; path: string; type?: string \| null; })[]` | no |  |
+
 ### `machine.update`
 
 *Direction:* client → server
 
-Change label, cwd, auto-connect or the per-machine Jarvis switch (1.76.0).
+Change label, connection fields, cwd, auto-connect or the per-machine Jarvis switch (1.76.0; host/user/port/keyPath since 1.82.0, machineKeys).
 
 **Params**
 
 | field | type | required | description |
 |---|---|---|---|
 | `autoConnect` | `boolean \| null` | no |  |
+| `host` | `string \| null` | no | SSH host or config alias (1.82.0, machineKeys). |
 | `id` | `string` | yes |  |
 | `jarvisAllowed` | `boolean \| null` | no |  |
+| `keyPath` | `string \| null` | no | Private key path; empty or null lets ssh choose (1.82.0, machineKeys). |
 | `label` | `string \| null` | no |  |
+| `port` | `number \| null` | no | SSH port (1.82.0, machineKeys). |
 | `remoteCwd` | `string \| null` | no |  |
 | `sessionView` | `"chat" \| "terminal" \| null` | no |  |
+| `user` | `string \| null` | no | SSH user (1.82.0, machineKeys). |
 
 **Result**
 

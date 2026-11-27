@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.81.0";
+export const PROTOCOL_VERSION = "1.82.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -4340,14 +4340,51 @@ export interface MachineRemoveResult {
   ok?: boolean;
 }
 
-/** `machine.update` params. Change label, cwd, auto-connect or the per-machine Jarvis switch (1.76.0). */
+/** `machine.sshHosts` params. Concrete ssh config host aliases on this computer (1.82.0, machineKeys). */
+export type MachineSshHostsParams = Record<string, unknown>;
+
+/** `machine.sshHosts` result. */
+export interface MachineSshHostsResult {
+  hosts?: ({
+    alias: string;
+    hostName?: string | null;
+    identityFile?: string | null;
+    port?: number | null;
+    user?: string | null;
+  })[];
+}
+
+/** `machine.sshKeys` params. Candidate private keys under this computer's ~/.ssh (1.82.0, machineKeys). */
+export type MachineSshKeysParams = Record<string, unknown>;
+
+/** `machine.sshKeys` result. */
+export interface MachineSshKeysResult {
+  keys?: ({
+    comment?: string | null;
+    /** True when group and other bits are off. */
+    modeOk?: boolean;
+    name: string;
+    path: string;
+    type?: string | null;
+  })[];
+}
+
+/** `machine.update` params. Change label, connection fields, cwd, auto-connect or the per-machine Jarvis switch (1.76.0; host/user/port/keyPath since 1.82.0, machineKeys). */
 export interface MachineUpdateParams {
   autoConnect?: boolean | null;
+  /** SSH host or config alias (1.82.0, machineKeys). */
+  host?: string | null;
   id: string;
   jarvisAllowed?: boolean | null;
+  /** Private key path; empty or null lets ssh choose (1.82.0, machineKeys). */
+  keyPath?: string | null;
   label?: string | null;
+  /** SSH port (1.82.0, machineKeys). */
+  port?: number | null;
   remoteCwd?: string | null;
   sessionView?: "chat" | "terminal" | null;
+  /** SSH user (1.82.0, machineKeys). */
+  user?: string | null;
 }
 
 /** `machine.update` result. */
@@ -13314,6 +13351,8 @@ export interface MethodMap {
   "machine.disconnect": { params: MachineDisconnectParams; result: MachineDisconnectResult };
   "machine.list": { params: MachineListParams; result: MachineListResult };
   "machine.remove": { params: MachineRemoveParams; result: MachineRemoveResult };
+  "machine.sshHosts": { params: MachineSshHostsParams; result: MachineSshHostsResult };
+  "machine.sshKeys": { params: MachineSshKeysParams; result: MachineSshKeysResult };
   "machine.update": { params: MachineUpdateParams; result: MachineUpdateResult };
   "mcp.add": { params: McpAddParams; result: McpAddResult };
   "mcp.authorize": { params: McpAuthorizeParams; result: McpAuthorizeResult };
@@ -13582,6 +13621,8 @@ export type ClientMethod =
   | "machine.disconnect"
   | "machine.list"
   | "machine.remove"
+  | "machine.sshHosts"
+  | "machine.sshKeys"
   | "machine.update"
   | "mcp.add"
   | "mcp.authorize"

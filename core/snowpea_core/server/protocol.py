@@ -10560,6 +10560,16 @@ class MachineAddParams(Payload):
 class MachineUpdateParams(Payload):
     id: str
     label: str | None = None
+    host: str | None = Field(
+        default=None,
+        description="SSH host or config alias (1.82.0, machineKeys).",
+    )
+    user: str | None = Field(default=None, description="SSH user (1.82.0, machineKeys).")
+    port: int | None = Field(default=None, description="SSH port (1.82.0, machineKeys).")
+    keyPath: str | None = Field(
+        default=None,
+        description="Private key path; empty or null lets ssh choose (1.82.0, machineKeys).",
+    )
     remoteCwd: str | None = None
     autoConnect: bool | None = None
     jarvisAllowed: bool | None = None
@@ -10592,6 +10602,30 @@ class MachineConnectResult(Payload):
     status: Literal["connecting", "connected", "asking", "error"]
     ask: MachineAsk | None = None
     error: str | None = None
+
+
+class MachineSshKeyRow(Payload):
+    path: str
+    name: str
+    type: str | None = None
+    comment: str | None = None
+    modeOk: bool = Field(default=False, description="True when group and other bits are off.")
+
+
+class MachineSshKeysResult(Payload):
+    keys: list[MachineSshKeyRow] = Field(default_factory=list)
+
+
+class MachineSshHostRow(Payload):
+    alias: str
+    hostName: str | None = None
+    user: str | None = None
+    port: int | None = None
+    identityFile: str | None = None
+
+
+class MachineSshHostsResult(Payload):
+    hosts: list[MachineSshHostRow] = Field(default_factory=list)
 
 
 class MachineChangedEvent(Payload):
@@ -13962,7 +13996,12 @@ METHODS: dict[str, RpcMethod] = {
         _m("machine.add", MachineAddParams, MachineRow,
            "Register an SSH target; a pasted key is stored locally only (1.76.0)."),
         _m("machine.update", MachineUpdateParams, MachineRow,
-           "Change label, cwd, auto-connect or the per-machine Jarvis switch (1.76.0)."),
+           "Change label, connection fields, cwd, auto-connect or the per-machine Jarvis switch "
+           "(1.76.0; host/user/port/keyPath since 1.82.0, machineKeys)."),
+        _m("machine.sshKeys", Empty, MachineSshKeysResult,
+           "Candidate private keys under this computer's ~/.ssh (1.82.0, machineKeys)."),
+        _m("machine.sshHosts", Empty, MachineSshHostsResult,
+           "Concrete ssh config host aliases on this computer (1.82.0, machineKeys)."),
         _m("machine.remove", MachineIdParams, Ok, "Forget a machine and disconnect it (1.76.0)."),
         _m("machine.connect", MachineConnectParams, MachineConnectResult,
            "Connect over ssh and open a tunnel to the remote daemon (1.76.0)."),
@@ -14273,6 +14312,8 @@ CAPABILITIES: list[str] = [
     "toolAsksUser",
     # 1.81.0 (M53): ssh password and key-passphrase login for remote machines.
     "machinePassword",
+    # 1.82.0: list ssh keys and config hosts; optional auto key on machine.connect.
+    "machineKeys",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
@@ -14557,6 +14598,8 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "machine.connect",
         "machine.disconnect",
         "machine.answer",
+        "machine.sshKeys",
+        "machine.sshHosts",
     }
 )
 

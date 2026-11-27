@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.machines.gates import (
@@ -14,6 +15,9 @@ from snowpea_core.machines.gates import (
 )
 from snowpea_core.machines.proxy import refuse_unknown_proxy
 from snowpea_core.machines.registry import validate_key_path
+from snowpea_core.machines.ssh import _expand_home
+from snowpea_core.machines.ssh_config_hosts import list_ssh_config_hosts
+from snowpea_core.machines.ssh_keys import list_ssh_keys
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
@@ -25,6 +29,10 @@ from snowpea_core.server.protocol import (
     MachineIdParams,
     MachineListResult,
     MachineRow,
+    MachineSshHostRow,
+    MachineSshHostsResult,
+    MachineSshKeyRow,
+    MachineSshKeysResult,
     MachineUpdateParams,
     Ok,
 )
@@ -41,7 +49,34 @@ HANDLED_METHODS: tuple[str, ...] = (
     "machine.connect",
     "machine.disconnect",
     "machine.answer",
+    "machine.sshKeys",
+    "machine.sshHosts",
 )
+
+
+def _user_ssh_dir() -> Path:
+    return Path(_expand_home("~/.ssh"))
+
+
+def _connection_fields_touched(params: MachineUpdateParams) -> bool:
+    touched = params.model_fields_set
+    return bool(touched & {"host", "user", "port", "keyPath"})
+
+
+def _ensure_disconnected_for_connection_edit(
+    manager: Any, machine_id: str, params: MachineUpdateParams
+) -> None:
+    if not _connection_fields_touched(params):
+        return
+    live = manager._live.get(machine_id)  # noqa: SLF001
+    if live is None:
+        return
+    if live.status in ("connected", "connecting", "asking"):
+        raise RpcError(
+            errors.UNAVAILABLE,
+            "disconnect the machine before changing its connection",
+            {"id": machine_id},
+        )
 
 
 def ensure_manager(core: Core):
@@ -93,12 +128,43 @@ async def machine_add_handler(
 async def machine_update_handler(
     _conn: RpcConnection, params: MachineUpdateParams, core: Core
 ) -> MachineRow:
+    from snowpea_core.machines.registry import _validate_record_target
+
     manager = ensure_manager(core)
     rec = manager.registry.get(params.id)
     if rec is None:
         raise RpcError(errors.NOT_FOUND, "machine not found", {"id": params.id})
+    _ensure_disconnected_for_connection_edit(manager, params.id, params)
+    touched = params.model_fields_set
+    if "host" in touched and params.host is not None and params.host != rec.host:
+        manager.registry.clear_known_host(rec)
     if params.label is not None:
         rec.label = params.label
+    if _connection_fields_touched(params):
+        host = rec.host if "host" not in touched else (params.host or "")
+        user = rec.user if "user" not in touched else params.user
+        port = rec.port if "port" not in touched else params.port
+        if "host" in touched:
+            if not host:
+                raise RpcError(errors.INVALID_PARAMS, "host must not be empty", {"field": "host"})
+            rec.host = host
+        if "user" in touched:
+            rec.user = user
+        if "port" in touched:
+            rec.port = port
+        target = _validate_record_target(rec.host, rec.user, rec.port)
+        if target is None:
+            raise RpcError(
+                errors.INVALID_PARAMS,
+                "machine target is not safe to connect to",
+                {"field": "host"},
+            )
+        rec.host = target.host
+        rec.user = target.user
+        rec.port = target.port
+        if "keyPath" in touched:
+            text = params.keyPath
+            rec.key_path = validate_key_path(text) if text else None
     if params.remoteCwd is not None:
         rec.remote_cwd = params.remoteCwd
     if params.autoConnect is not None:
@@ -151,6 +217,21 @@ async def machine_disconnect_handler(
         live.status = "off"
     await manager.announce()
     return Ok()
+
+
+async def machine_ssh_keys_handler(
+    _conn: RpcConnection, _params: Any, _core: Core
+) -> MachineSshKeysResult:
+    rows = [MachineSshKeyRow.model_validate(item) for item in list_ssh_keys(_user_ssh_dir())]
+    return MachineSshKeysResult(keys=rows)
+
+
+async def machine_ssh_hosts_handler(
+    _conn: RpcConnection, _params: Any, _core: Core
+) -> MachineSshHostsResult:
+    hosts = list_ssh_config_hosts(_user_ssh_dir())
+    rows = [MachineSshHostRow.model_validate(item) for item in hosts]
+    return MachineSshHostsResult(hosts=rows)
 
 
 async def machine_answer_handler(
@@ -301,6 +382,8 @@ def register_machine_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
         ("machine.connect", machine_connect_handler),
         ("machine.disconnect", machine_disconnect_handler),
         ("machine.answer", machine_answer_handler),
+        ("machine.sshKeys", machine_ssh_keys_handler),
+        ("machine.sshHosts", machine_ssh_hosts_handler),
     ):
         dispatcher.register(name, handler)
     return dispatcher

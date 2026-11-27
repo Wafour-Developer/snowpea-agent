@@ -255,7 +255,7 @@ async def password_stack(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any
 
 def test_protocol_advertises_machine_password() -> None:
     assert "machinePassword" in protocol.CAPABILITIES
-    assert PROTOCOL_VERSION == "1.81.0"
+    assert PROTOCOL_VERSION == "1.82.0"
 
 
 @posix_only

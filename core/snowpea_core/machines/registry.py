@@ -260,6 +260,15 @@ class MachineRegistry:
     def get(self, machine_id: str) -> MachineRecord | None:
         return self.records.get(machine_id)
 
+    def clear_known_host(self, rec: MachineRecord) -> None:
+        from snowpea_core.machines.ssh_config_hosts import (
+            drop_known_hosts_for_labels,
+            known_host_labels,
+        )
+
+        path = self.known_hosts_file()
+        drop_known_hosts_for_labels(path, known_host_labels(rec.host, rec.user, rec.port))
+
     def _ensure_dir(self) -> None:
         parent = self.dir.parent
         parent.mkdir(parents=True, exist_ok=True)
@@ -284,7 +293,11 @@ class MachineRegistry:
 
     def ssh_identity(self, rec: MachineRecord) -> list[str]:
         """OpenSSH ``-o`` options only (not ``-i`` argv entries)."""
-        return ["IdentitiesOnly=yes"]
+        if rec.pasted_key and not rec.key_path:
+            return ["IdentitiesOnly=yes"]
+        if rec.key_path:
+            return ["IdentitiesOnly=yes"]
+        return []
 
     def ssh_extra_args(self, rec: MachineRecord) -> list[str]:
         """Separate ssh argv entries (e.g. ``-i``) for :meth:`RemoteSession.ssh_argv`."""

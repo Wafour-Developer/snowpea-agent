@@ -170,6 +170,7 @@ TABLE: dict[str, tuple[str, ...]] = {
         # M40 (1.76.0): registered remote machines — local person only.
         "machine.list", "machine.add", "machine.update", "machine.remove",
         "machine.connect", "machine.disconnect", "machine.answer",
+        "machine.sshKeys", "machine.sshHosts",
         "extension.enable", "extension.disable", "extension.configure", "extension.reload",
         "extension.list", "system.update", "system.restart",
         # Security review 7, P2: security settings edited on disk wait for a local person.
