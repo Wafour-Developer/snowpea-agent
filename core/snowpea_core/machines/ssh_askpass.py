@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import ctypes
-import ctypes.util
+import logging
 import os
 import secrets
 import shlex
@@ -29,7 +29,8 @@ PASSPHRASE_PREFIX = "Enter passphrase for key "
 _SUN_PATH_MAX = 100
 
 PROC_BSDINFO_PBI_PPID_OFF = 16
-PROC_BSDINFO_START_SEC_OFF = 116
+PROC_BSDINFO_START_SEC_OFF = 120
+PROC_BSDINFO_STRUCT_SIZE = 136
 
 ProcFieldsReader = Callable[[int], tuple[int, str] | None]
 _proc_fields_reader: ProcFieldsReader | None = None
@@ -97,8 +98,7 @@ def _linux_proc_fields(pid: int) -> tuple[int, str] | None:
 
 def parse_proc_bsdinfo(data: bytes) -> tuple[int, int, int] | None:
     """Parse ``proc_bsdinfo`` bytes (macOS); for unit tests with captured samples."""
-    need = PROC_BSDINFO_START_SEC_OFF + 16
-    if len(data) < need:
+    if len(data) < PROC_BSDINFO_STRUCT_SIZE:
         return None
     ppid = struct.unpack_from("<I", data, PROC_BSDINFO_PBI_PPID_OFF)[0]
     start_sec = struct.unpack_from("<Q", data, PROC_BSDINFO_START_SEC_OFF)[0]
@@ -106,13 +106,49 @@ def parse_proc_bsdinfo(data: bytes) -> tuple[int, int, int] | None:
     return ppid, start_sec, start_usec
 
 
+_log = logging.getLogger(__name__)
+_libproc: ctypes.CDLL | None | bool = False
+_libproc_unavailable_logged = False
+
+
+def _darwin_libproc() -> ctypes.CDLL | None:
+    global _libproc, _libproc_unavailable_logged
+    if _libproc is False:
+        loaded: ctypes.CDLL | None = None
+        for path in ("/usr/lib/libSystem.B.dylib",):
+            try:
+                loaded = ctypes.CDLL(path)
+                break
+            except OSError:
+                continue
+        if loaded is None:
+            try:
+                loaded = ctypes.CDLL(None)
+            except OSError:
+                loaded = None
+        _libproc = loaded
+        if loaded is None and not _libproc_unavailable_logged:
+            _log.warning("ssh password login is unavailable (libproc could not be loaded)")
+            _libproc_unavailable_logged = True
+    return _libproc if _libproc else None
+
+
+def parse_xucred(data: bytes, *, expected_version: int = 1) -> int | None:
+    """Parse ``struct xucred`` (``cr_version``, ``cr_uid``); unit-testable."""
+    if len(data) < 8:
+        return None
+    version, uid = struct.unpack("II", data[:8])
+    if version != expected_version:
+        return None
+    return uid
+
+
 def _darwin_proc_bsdinfo(pid: int) -> tuple[int, int, int] | None:
     if sys.platform != "darwin":
         return None
-    libname = ctypes.util.find_library("proc")
-    if not libname:
+    libproc = _darwin_libproc()
+    if libproc is None:
         return None
-    libproc = ctypes.CDLL(libname)
     proc_pidinfo = libproc.proc_pidinfo
     proc_pidinfo.argtypes = [
         ctypes.c_int,
@@ -165,7 +201,7 @@ def _peer_pid_linux(conn: socket.socket) -> int | None:
 def _peer_pid_darwin(conn: socket.socket) -> int | None:
     sol_local = 0
     local_peerpid = 0x002
-    local_peercred = 0x003
+    local_peercred = 0x001
     try:
         raw_pid = conn.getsockopt(sol_local, local_peerpid, struct.calcsize("i"))
         peer = struct.unpack("i", raw_pid)[0]
@@ -173,11 +209,9 @@ def _peer_pid_darwin(conn: socket.socket) -> int | None:
         return None
     try:
         raw_cred = conn.getsockopt(sol_local, local_peercred, 104)
-        # xucred: version (u_int), uid (uid_t), ...
-        if len(raw_cred) >= 8:
-            _version, uid = struct.unpack("II", raw_cred[:8])
-            if uid != os.getuid():
-                return None
+        uid = parse_xucred(raw_cred)
+        if uid is None or uid != os.getuid():
+            return None
     except OSError:
         libc = ctypes.CDLL(None, use_errno=True)
         euid = ctypes.c_uint32()
@@ -289,6 +323,8 @@ class SshAskpassBridge:
         if not self._active or self._server is not None:
             return
         self._server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        with contextlib.suppress(FileNotFoundError):
+            Path(self._socket_path).unlink()
         self._server.bind(self._socket_path)
         Path(self._socket_path).chmod(0o600)
         self._server.listen(1)
@@ -306,6 +342,9 @@ class SshAskpassBridge:
             with contextlib.suppress(OSError):
                 self._server.close()
             self._server = None
+        if self._socket_path:
+            with contextlib.suppress(FileNotFoundError, OSError):
+                Path(self._socket_path).unlink()
 
     def _make_run_dir(self) -> Path:
         base = self._home / "run"
@@ -344,7 +383,7 @@ class SshAskpassBridge:
         pkg_root = str(Path(snowpea_core.__file__).resolve().parent.parent)
         code = (
             "import sys; "
-            f"sys.path.insert(0,{pkg_root!r}); "
+            f"sys.path.append({pkg_root!r}); "
             "from snowpea_core.machines.ssh_askpass import main; "
             "raise SystemExit(main())"
         )

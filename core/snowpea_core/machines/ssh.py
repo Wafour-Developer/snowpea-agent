@@ -91,9 +91,17 @@ def ssh_runner(
                     stderr=subprocess.PIPE,
                     env=env,
                 )
-                if on_spawn is not None:
-                    on_spawn(proc.pid)
                 try:
+                    if on_spawn is not None:
+                        try:
+                            on_spawn(proc.pid)
+                        except OSError as spawn_exc:
+                            proc.kill()
+                            with contextlib.suppress(OSError):
+                                proc.wait(timeout=5)
+                            raise RemoteError(
+                                f"ssh askpass setup failed: {spawn_exc}", code="internal"
+                            ) from spawn_exc
                     try:
                         stdout, stderr = proc.communicate(input=stdin, timeout=timeout)
                     except subprocess.TimeoutExpired:

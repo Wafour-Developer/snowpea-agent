@@ -21,16 +21,20 @@ from _support import connect, make_daemon
 
 import snowpea_core.machines.ssh_askpass as ssh_askpass_mod
 from snowpea_core.cli import remote
+from snowpea_core.cli.remote import RemoteError
 from snowpea_core.machines.manager import MachineManager
+from snowpea_core.machines.ssh import ssh_runner
 from snowpea_core.machines.ssh_askpass import (
     PROC_BSDINFO_PBI_PPID_OFF,
     PROC_BSDINFO_START_SEC_OFF,
+    PROC_BSDINFO_STRUCT_SIZE,
     SOCKET_ENV,
     TOKEN_ENV,
     AskpassRejected,
     SshAskpassBridge,
     classify_prompt_kind,
     parse_proc_bsdinfo,
+    parse_xucred,
     request_secret,
     sanitize_ssh_prompt,
 )
@@ -666,6 +670,110 @@ def test_listener_closed_after_ssh_run(tmp_path: Path) -> None:
 
 
 @posix_only
+def test_two_tracked_asks_with_finish_between(tmp_path: Path) -> None:
+    got: list[str] = []
+
+    def cb(prompt: str) -> str | None:
+        got.append(prompt)
+        return f"ans{len(got)}"
+
+    bridge = SshAskpassBridge(cb, home=tmp_path / "home", max_prompts=2)
+    bridge.start()
+    legit = _ssh_child_script(
+        'r=subprocess.run([os.environ["SSH_ASKPASS"], "me@box password:"], '
+        "env=os.environ, check=False)\n"
+        "sys.exit(r.returncode)"
+    )
+    for _ in range(2):
+        env = bridge.env()
+        holder = subprocess.Popen(
+            [sys.executable, "-c", legit],
+            env={**os.environ, **env},
+        )
+        bridge.set_ssh_pid(holder.pid)
+        try:
+            assert holder.wait(timeout=10) == 0
+        finally:
+            bridge.finish_ssh_run()
+    assert got == ["me@box password:", "me@box password:"]
+    bridge.stop()
+
+
+@posix_only
+def test_prepare_like_three_tracked_ssh_runs(tmp_path: Path) -> None:
+    """Probe → install → probe style: finish between runs, password on the first."""
+    phases: list[str] = []
+    answered = {"n": 0}
+
+    def cb(prompt: str) -> str | None:
+        if answered["n"] > 0:
+            return None
+        answered["n"] += 1
+        return "s3cret"
+
+    bridge = SshAskpassBridge(cb, home=tmp_path / "home")
+    bridge.start()
+    runner = ssh_runner(
+        None,
+        bridge.env,
+        on_spawn=bridge.set_ssh_pid,
+        on_finish=bridge.finish_ssh_run,
+    )
+    probe_ok = _ssh_child_script(
+        'r=subprocess.run([os.environ["SSH_ASKPASS"], "me@box password:"], '
+        "env=os.environ, check=False)\n"
+        "sys.exit(0 if r.returncode == 0 else 77)"
+    )
+    batch_only = _ssh_child_script("sys.exit(77)")
+    scripts = [probe_ok, batch_only, batch_only]
+    for script in scripts:
+        phases.append("run")
+        done = runner([sys.executable, "-c", script], None, True)
+        assert done.returncode in (0, 77), done.stderr
+    assert answered["n"] == 1
+    assert len(phases) == 3
+    bridge.stop()
+
+
+@posix_only
+def test_on_spawn_failure_kills_ssh_not_sshmissing(tmp_path: Path) -> None:
+    pid_box: list[int] = []
+
+    def boom(_pid: int) -> None:
+        raise OSError(98, "Address already in use")
+
+    bridge = SshAskpassBridge(lambda _p: "x", home=tmp_path / "home")
+    bridge.start()
+    runner = ssh_runner(
+        None,
+        bridge.env,
+        on_spawn=boom,
+        on_finish=bridge.finish_ssh_run,
+    )
+    child = _ssh_child_script(
+        "import pathlib\n"
+        f'pathlib.Path({str(tmp_path / "ssh-child.pid")!r}).write_text(str(os.getpid()))\n'
+        "import time; time.sleep(120)"
+    )
+    with pytest.raises(RemoteError) as caught:
+        runner([sys.executable, "-c", child], None, True)
+    assert caught.value.reason != "sshMissing"
+    assert "askpass" in str(caught.value).lower()
+    pid_file = tmp_path / "ssh-child.pid"
+    if pid_file.is_file():
+        child_pid = int(pid_file.read_text(encoding="utf-8").strip())
+        pid_box.append(child_pid)
+        try:
+            os.kill(child_pid, 0)
+        except ProcessLookupError:
+            pass
+        else:
+            os.kill(child_pid, 9)
+            pytest.fail("ssh child survived on_spawn failure")
+    bridge.stop()
+
+
+@posix_only
 def test_ask_slot_rechecks_declined(tmp_path: Path) -> None:
     class _GateLock:
         def __init__(self) -> None:
@@ -715,13 +823,24 @@ def test_ask_slot_rechecks_declined(tmp_path: Path) -> None:
 
 
 def test_parse_proc_bsdinfo_fake_bytes() -> None:
-    blob = bytearray(PROC_BSDINFO_START_SEC_OFF + 16)
+    blob = bytearray(PROC_BSDINFO_STRUCT_SIZE)
     struct.pack_into("<I", blob, PROC_BSDINFO_PBI_PPID_OFF, 77)
     struct.pack_into("<Q", blob, PROC_BSDINFO_START_SEC_OFF, 1_700_000_000)
     struct.pack_into("<Q", blob, PROC_BSDINFO_START_SEC_OFF + 8, 42)
     parsed = parse_proc_bsdinfo(bytes(blob))
     assert parsed == (77, 1_700_000_000, 42)
     assert parse_proc_bsdinfo(b"short") is None
+    # Offset 116 (old bug) must not match the start time stored at 120.
+    struct.pack_into("<I", blob, 116, 0xCAFEBABE)
+    legacy_start = struct.unpack_from("<Q", blob, 116)[0]
+    assert legacy_start != 1_700_000_000
+
+
+def test_parse_xucred_fake_bytes() -> None:
+    good = struct.pack("II", 1, os.getuid())
+    assert parse_xucred(good) == os.getuid()
+    assert parse_xucred(b"\x00\x00\x00\x02" + struct.pack("I", os.getuid())) is None
+    assert parse_xucred(good[:4]) is None
 
 
 @posix_only
@@ -773,7 +892,8 @@ def test_launcher_isolated_python(tmp_path: Path) -> None:
     body = bridge._launcher.read_text(encoding="utf-8")  # noqa: SLF001
     pkg_root = str(Path(snowpea_core.__file__).resolve().parent.parent)
     assert "-E -s -P" in body
-    assert "sys.path.insert(0," in body
+    assert "sys.path.append(" in body
+    assert "sys.path.insert(0," not in body
     assert pkg_root in body
     assert "snowpea_core.machines.ssh_askpass" in body
     bridge.stop()
