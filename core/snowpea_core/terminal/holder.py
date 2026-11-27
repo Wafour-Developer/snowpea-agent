@@ -46,6 +46,7 @@ import contextlib
 import hashlib
 import hmac
 import json
+import logging
 import os
 import secrets
 import struct
@@ -53,6 +54,8 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 HELLO, DATA, INPUT, RESIZE, SIGNAL, EXIT, TAIL, BYE, CHALLENGE, AUTH = range(1, 11)
 NONCE_BYTES = 32
@@ -76,8 +79,10 @@ MAX_BACKLOG = 8 * 1024 * 1024
 HELLO_TIMEOUT = 5.0
 #: After the exit: how long to wait for the core's BYE before leaving files behind.
 BYE_TIMEOUT = 10.0
-#: After the exit: how long to keep reading output still in the PTY.
-DRAIN_TIMEOUT = 0.2
+#: After the main program exits: how long to keep the PTY open for trailing output.
+DRAIN_MAX = 600.0
+#: Poll interval while waiting for session children or EOF.
+DRAIN_POLL = 0.05
 #: How often the holder checks that its terminal still exists: its home, its
 #: meta file and (Unix) its socket.  Gone means nobody can ever reach it again,
 #: so it ends its program (the kill sequence) and itself.
@@ -166,6 +171,7 @@ class Holder:
         if not data:
             self._eof.set()
             return
+        self._eof.clear()
         self.tail += data
         if len(self.tail) > TAIL_BYTES:
             del self.tail[: len(self.tail) - TAIL_BYTES]
@@ -239,10 +245,11 @@ class Holder:
             self._child_done = True
         finally:
             watch.cancel()
-        # The exit code goes out only after the last output.
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(self._eof.wait(), DRAIN_TIMEOUT)
-        self.pty.drain()
+        # The exit code goes out only after the last output (and session children).
+        capped = await self._drain_after_exit()
+        if capped:
+            with contextlib.suppress(OSError):
+                self.pty.signal("hup")
         self.exit_code = code
         self.exited.set()
         if not self.orphaned:
@@ -260,6 +267,37 @@ class Holder:
             with contextlib.suppress(OSError):
                 os.unlink(self.address)
         return code
+
+    def _pty_session_busy(self) -> bool:
+        busy = getattr(self.pty, "session_busy", None)
+        return bool(busy()) if busy is not None else False
+
+    async def _drain_after_exit(self) -> bool:
+        """Keep reading while the session still has children or the PTY is not at EOF.
+
+        Returns True when the cap was hit (SIGHUP is sent before close).
+        """
+        max_wait = float(self.spec.get("drainMax") or DRAIN_MAX)
+        poll = float(self.spec.get("drainPoll") or DRAIN_POLL)
+        deadline = time.monotonic() + max_wait
+        while time.monotonic() < deadline:
+            self.pty.drain()
+            if self._eof.is_set() and not self._pty_session_busy():
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                await asyncio.wait_for(self._eof.wait(), min(poll, remaining))
+            except TimeoutError:
+                pass
+        capped = time.monotonic() >= deadline and (
+            self._pty_session_busy() or not self._eof.is_set()
+        )
+        if capped:
+            log.warning("terminal %s: drain timed out after %.0fs", self.id, max_wait)
+        self.pty.drain()
+        return capped
 
     # -- ending without a core ----------------------------------------------
     def _install_terminate(self) -> None:
