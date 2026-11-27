@@ -140,6 +140,46 @@ def hang() -> None:
         time.sleep(3600)
 
 
+def _ignore_sighup() -> None:
+    if hasattr(signal, "SIGHUP"):
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
+
+
+def spawn_post_exit_worker(
+    marker: str,
+    *,
+    delay: float = 0.5,
+    message: str = "post-exit output\n",
+) -> subprocess.Popen[bytes]:
+    """A session child that outlives the parent (simulates a CLI self-updater)."""
+    code = (
+        "import signal, sys, time\n"
+        "signal.signal(signal.SIGHUP, signal.SIG_IGN)\n"
+        f"time.sleep({delay!r})\n"
+        f"sys.stdout.write({message!r})\n"
+        f"sys.stdout.flush()\n"
+        f"open({marker!r}, 'w', encoding='utf-8').write('done')\n"
+    )
+    return subprocess.Popen(
+        [sys.executable, "-c", code],
+        stdin=subprocess.DEVNULL,
+        preexec_fn=_ignore_sighup,
+    )
+
+
+def background_updater_exit(
+    marker: str,
+    *,
+    delay: float = 0.5,
+    message: str = "post-exit output\n",
+    banner: str = "updater started\n",
+) -> int:
+    spawn_post_exit_worker(marker, delay=delay, message=message)
+    sys.stdout.write(banner)
+    sys.stdout.flush()
+    return 0
+
+
 def maybe_spawn_child() -> None:
     path = os.environ.get("FAKE_CLI_CHILD_PIDFILE")
     if not path:

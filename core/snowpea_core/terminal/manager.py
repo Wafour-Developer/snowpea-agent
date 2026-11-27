@@ -423,6 +423,8 @@ class TerminalManager:
         self._holder_command = holder_command
         #: How often a holder checks its terminal still exists (tests shorten it).
         self.holder_watch_interval: float | None = None
+        #: Cap for holder output drain after the main program exits (tests shorten it).
+        self.holder_drain_max: float | None = None
         self._report_address = report_address
         self._terminals: dict[str, Terminal] = {}
         self._poll_task: asyncio.Task[None] | None = None
@@ -712,6 +714,7 @@ class TerminalManager:
                     self.home, terminal_id, argv=spec.argv, env=env, cwd=spec.cwd,
                     cols=spec.cols, rows=spec.rows, command=self._holder_command,
                     watch_interval=self.holder_watch_interval,
+                    drain_max=self.holder_drain_max,
                 )
             except (HolderError, OSError, TimeoutError) as exc:
                 self._terminals.pop(terminal_id, None)

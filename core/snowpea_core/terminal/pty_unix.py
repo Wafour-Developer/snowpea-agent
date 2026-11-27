@@ -36,12 +36,30 @@ def _controlling_tty() -> None:  # pragma: no cover - runs in the child
     fcntl.ioctl(0, termios.TIOCSCTTY, 0)
 
 
+def session_has_processes(sid: int) -> bool:
+    """True when any live process still belongs to ``sid`` (Linux ``/proc``)."""
+    proc = "/proc"
+    if not os.path.isdir(proc):
+        return False
+    for name in os.listdir(proc):
+        if not name.isdigit():
+            continue
+        pid = int(name)
+        try:
+            if os.getsid(pid) == sid:
+                return True
+        except ProcessLookupError:
+            continue
+    return False
+
+
 class UnixPty:
     """One program on one PTY; ``on_data(b"")`` signals EOF."""
 
     def __init__(self) -> None:
         self.master_fd: int = -1
         self.pid: int = 0
+        self._sid: int | None = None
         self._proc: asyncio.subprocess.Process | None = None
         self._on_data: Callable[[bytes], None] | None = None
         self._pending = bytearray()
@@ -72,9 +90,19 @@ class UnixPty:
         os.set_blocking(master, False)
         self.master_fd = master
         self.pid = self._proc.pid
+        with contextlib.suppress(OSError):
+            self._sid = os.getsid(self.pid)
         self._on_data = on_data
         asyncio.get_running_loop().add_reader(master, self._readable)
         return self.pid
+
+    def session_id(self) -> int | None:
+        return self._sid
+
+    def session_busy(self) -> bool:
+        if self._sid is None:
+            return False
+        return session_has_processes(self._sid)
 
     # -- output -------------------------------------------------------------
     def _readable(self) -> None:

@@ -155,6 +155,7 @@ async def spawn_holder(
     rows: int,
     command: list[str] | None = None,
     watch_interval: float | None = None,
+    drain_max: float | None = None,
 ) -> dict[str, Any]:
     """Start a holder; returns ``{pid, child, socket, token}``."""
     folder = terminals_dir(home)
@@ -171,6 +172,8 @@ async def spawn_holder(
         "dir": str(folder),
         "watchInterval": watch_interval,
     }
+    if drain_max is not None:
+        spec["drainMax"] = drain_max
     ready = await asyncio.wait_for(
         asyncio.to_thread(_start, command or holder_command(), folder, f"{terminal_id}.log", spec),
         SPAWN_TIMEOUT,

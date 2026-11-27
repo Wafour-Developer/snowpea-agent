@@ -441,6 +441,17 @@ def main() -> int:
         return 0
     c.log_start()
     args = sys.argv[1:]
+    if c.has_flag("--background-updater"):
+        marker = (
+            c.arg_value("--background-updater-marker")
+            or os.environ.get("FAKE_CLI_BG_MARKER")
+        )
+        if not marker:
+            print("missing --background-updater-marker", file=sys.stderr)
+            return 2
+        delay = float(os.environ.get("FAKE_CLI_BG_DELAY", "0.5"))
+        message = os.environ.get("FAKE_CLI_BG_MSG", "post-exit output\n")
+        return c.background_updater_exit(marker, delay=delay, message=message)
     if args and args[0] == "app-server":
         return Codex().run()
     return interactive_terminal()
