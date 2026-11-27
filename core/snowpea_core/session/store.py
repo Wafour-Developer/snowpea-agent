@@ -118,6 +118,8 @@ SESSION_COLUMNS: tuple[tuple[str, str], ...] = (
     ("origin_client_id", "TEXT"),
     # session.create {noProject} (1.71.0): results go to the workspace.
     ("no_project", "INTEGER"),
+    # Queued session.notice lines waiting for the next model call (0.2.106).
+    ("pending_notices_json", "TEXT"),
 )
 
 #: Columns added to ``events`` after 1.43 (M17 2a).
@@ -425,6 +427,26 @@ class Store:
             tuple(session_ids),
         )
         return {str(row["session_id"]): str(row["last"]) for row in rows if row["last"]}
+
+    async def read_pending_notices(self, session_id: str) -> str | None:
+        """JSON list of ``{text, queuedAt}`` rows for queued session notices."""
+        rows = await asyncio.to_thread(
+            self._query,
+            "SELECT pending_notices_json FROM sessions WHERE id = ?",
+            (session_id,),
+        )
+        if not rows:
+            return None
+        value = rows[0]["pending_notices_json"]
+        return None if value is None else str(value)
+
+    async def write_pending_notices(self, session_id: str, payload: str | None) -> None:
+        """Persist or clear the queued notice list for one session."""
+        await asyncio.to_thread(
+            self._execute,
+            "UPDATE sessions SET pending_notices_json = ? WHERE id = ?",
+            (payload, session_id),
+        )
 
     async def last_user_prompt(self, session_id: str) -> tuple[str | None, bool]:
         """The newest human ``message.user`` text, and whether any ``message.user`` exists.

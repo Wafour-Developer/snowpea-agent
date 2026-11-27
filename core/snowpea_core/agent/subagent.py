@@ -566,6 +566,9 @@ class _ChildWatcher:
             )
         )
         _append_bounded_child_notice(parent, marker, note, LIVE_EVIDENCE_PER_CHILD)
+        from snowpea_core.session.notices import schedule_persist
+
+        schedule_persist(self._manager.core, parent)
 
 
 # ---------------------------------------------------------------------------
@@ -1006,6 +1009,9 @@ class SubagentManager:
         parent.pending_notices.append(note)
         parent.reported_child_attempts.append(marker)
         del parent.reported_child_attempts[:-REPORTED_ATTEMPT_MARKERS]
+        from snowpea_core.session.notices import schedule_persist
+
+        schedule_persist(self.core, parent)
 
     async def _run_once(
         self,
