@@ -670,6 +670,32 @@ def test_listener_closed_after_ssh_run(tmp_path: Path) -> None:
 
 
 @posix_only
+def test_bind_failure_leaves_bridge_able_to_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bridge = SshAskpassBridge(lambda _p: "x", home=tmp_path / "home")
+    bridge.start()
+    bridge.finish_ssh_run()
+    assert not bridge.listener_open()
+
+    fail_once = {"left": 1}
+    real_bind = socket.socket.bind
+
+    def bind_once(self: socket.socket, *args: object) -> None:
+        if fail_once["left"] > 0:
+            fail_once["left"] -= 1
+            raise OSError(98, "Address already in use")
+        real_bind(self, *args)
+
+    monkeypatch.setattr(socket.socket, "bind", bind_once)
+    bridge.set_ssh_pid(os.getpid())
+    assert not bridge.listener_open()
+    bridge.set_ssh_pid(os.getpid())
+    assert bridge.listener_open()
+    bridge.stop()
+
+
+@posix_only
 def test_two_tracked_asks_with_finish_between(tmp_path: Path) -> None:
     got: list[str] = []
 
@@ -837,9 +863,9 @@ def test_parse_proc_bsdinfo_fake_bytes() -> None:
 
 
 def test_parse_xucred_fake_bytes() -> None:
-    good = struct.pack("II", 1, os.getuid())
+    good = struct.pack("II", 0, os.getuid())
     assert parse_xucred(good) == os.getuid()
-    assert parse_xucred(b"\x00\x00\x00\x02" + struct.pack("I", os.getuid())) is None
+    assert parse_xucred(struct.pack("II", 1, os.getuid())) is None
     assert parse_xucred(good[:4]) is None
 
 

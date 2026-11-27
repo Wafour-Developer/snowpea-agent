@@ -133,7 +133,7 @@ def _darwin_libproc() -> ctypes.CDLL | None:
     return _libproc if _libproc else None
 
 
-def parse_xucred(data: bytes, *, expected_version: int = 1) -> int | None:
+def parse_xucred(data: bytes, *, expected_version: int = 0) -> int | None:
     """Parse ``struct xucred`` (``cr_version``, ``cr_uid``); unit-testable."""
     if len(data) < 8:
         return None
@@ -322,12 +322,18 @@ class SshAskpassBridge:
     def _ensure_listener(self) -> None:
         if not self._active or self._server is not None:
             return
-        self._server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        with contextlib.suppress(FileNotFoundError):
-            Path(self._socket_path).unlink()
-        self._server.bind(self._socket_path)
-        Path(self._socket_path).chmod(0o600)
-        self._server.listen(1)
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            with contextlib.suppress(FileNotFoundError):
+                Path(self._socket_path).unlink()
+            sock.bind(self._socket_path)
+            Path(self._socket_path).chmod(0o600)
+            sock.listen(1)
+        except OSError:
+            with contextlib.suppress(OSError):
+                sock.close()
+            return
+        self._server = sock
         if self._thread is None or not self._thread.is_alive():
             self._stop.clear()
             self._thread = threading.Thread(

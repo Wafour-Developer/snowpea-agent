@@ -95,7 +95,7 @@ def ssh_runner(
                     if on_spawn is not None:
                         try:
                             on_spawn(proc.pid)
-                        except OSError as spawn_exc:
+                        except Exception as spawn_exc:
                             proc.kill()
                             with contextlib.suppress(OSError):
                                 proc.wait(timeout=5)
