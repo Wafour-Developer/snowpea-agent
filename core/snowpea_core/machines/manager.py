@@ -24,7 +24,11 @@ from snowpea_core.machines.proxy import (
 )
 from snowpea_core.machines.registry import MachineRegistry
 from snowpea_core.machines.ssh import HostKeys, ssh_runner
-from snowpea_core.machines.ssh_askpass import SshAskpassBridge
+from snowpea_core.machines.ssh_askpass import (
+    SshAskpassBridge,
+    classify_prompt_kind,
+    sanitize_ssh_prompt,
+)
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import PROTOCOL_VERSION, MachineAsk, MachineRow
@@ -41,7 +45,7 @@ DirectAdvert = Callable[[str], DaemonInfo | None]
 HEALTH_EVERY_SEC = 5.0
 HEALTH_FAILURES = 3
 BACKOFF_CAP_SEC = 15.0
-ASK_TIMEOUT_SEC = 600.0
+ASK_TIMEOUT_SEC = 240.0
 NOTIFY_QUEUE_MAX = 256
 _PROXY_RPC_DETAIL_KEYS = frozenset(
     {
@@ -66,7 +70,7 @@ class PendingAsk:
     fields: dict[str, Any]
     event: threading.Event = field(default_factory=threading.Event)
     answer: list[bool] = field(default_factory=list)
-    secret: list[str] = field(default_factory=list)
+    secret: list[str] = field(default_factory=list, repr=False)
 
 
 @dataclass
@@ -109,7 +113,8 @@ class _Asks:
                 return False
             return box.answer[-1] if box.answer else False
         finally:
-            self._live.ask = None
+            if self._live.ask is box:
+                self._live.ask = None
             self._pending.pop(ident, None)
             if self._live.status == "asking":
                 self._live.status = "connecting"
@@ -128,9 +133,12 @@ class _Asks:
                 return None
             if not box.answer or not box.answer[-1]:
                 return None
-            return box.secret[-1] if box.secret else None
+            value = box.secret[-1] if box.secret else None
+            box.secret.clear()
+            return value
         finally:
-            self._live.ask = None
+            if self._live.ask is box:
+                self._live.ask = None
             self._pending.pop(ident, None)
             if self._live.status == "asking":
                 self._live.status = "connecting"
@@ -247,12 +255,13 @@ class MachineManager:
     def _password_prompt(
         self, machine_id: str, live: LiveConnection, rec: Any, prompt: str
     ) -> str | None:
-        kind = "passphrase" if "passphrase" in prompt.lower() else "password"
+        clean = sanitize_ssh_prompt(prompt)
+        kind = classify_prompt_kind(prompt)
         target = rec.target()
         asks = _Asks(machine_id, self._pending_asks[machine_id], live, self._announce_sync)
         return asks.ask_secret(
             kind,
-            question=prompt,
+            question=clean,
             host=target.label,
             user=target.user or rec.user,
         )
@@ -266,29 +275,47 @@ class MachineManager:
         asks = _Asks(machine_id, self._pending_asks[machine_id], live, self._announce_sync)
         ssh_bin = self._ssh or remote.find_ssh_tool("ssh") or "ssh"
         bridge: SshAskpassBridge | None = None
-        extra_env = None
-        if interactive and sys.platform != "win32":
-            bridge = SshAskpassBridge(
-                lambda prompt, mid=machine_id: self._password_prompt(mid, live, rec, prompt)
-            )
-            bridge.start()
-            extra_env = bridge.env
         try:
+            extra_env = None
+            on_spawn = None
+            if interactive and sys.platform != "win32":
+                bridge_holder: list[SshAskpassBridge | None] = [None]
+
+                def _ask(prompt: str, mid: str = machine_id) -> str | None:
+                    secret = self._password_prompt(mid, live, rec, prompt)
+                    br = bridge_holder[0]
+                    if secret is None and br is not None:
+                        br.note_declined()
+                    return secret
+
+                bridge = SshAskpassBridge(
+                    lambda prompt, mid=machine_id: _ask(prompt, mid),
+                    home=self.core.paths.home,
+                    on_stop=lambda mid=machine_id: self._cancel_asks(mid),
+                )
+                bridge_holder[0] = bridge
+                bridge.start()
+                extra_env = bridge.env
+                on_spawn = bridge.set_ssh_pid
             session = RemoteSession(
                 target,
                 local_protocol=PROTOCOL_VERSION,
                 confirm=lambda q: asks.ask("install", question=q, version=__version__),
                 batch=not interactive,
                 ssh=ssh_bin,
-                run=ssh_runner(None, extra_env),
+                run=ssh_runner(None, extra_env, on_spawn=on_spawn),
             )
             host = HostKeys(session._ssh, asks, known_hosts=known)  # noqa: SLF001
             options = host.ensure(target)
             identity = self.registry.ssh_identity(rec)
+            extra_opts = (
+                ["NumberOfPasswordPrompts=1"] if interactive and sys.platform != "win32" else []
+            )
             session._options = [  # noqa: SLF001
                 *options,
                 f"UserKnownHostsFile={known}",
                 *identity,
+                *extra_opts,
             ]
             session._ssh_extra = list(self.registry.ssh_extra_args(rec))  # noqa: SLF001
             advert = session.prepare()
@@ -305,7 +332,7 @@ class MachineManager:
             if bridge is not None:
                 bridge.stop()
 
-    def _connect_worker(self, machine_id: str, *, interactive: bool = True) -> None:
+    def _connect_worker(self, machine_id: str, *, interactive: bool = False) -> None:
         rec = self.registry.get(machine_id)
         if rec is None:
             return
@@ -406,7 +433,7 @@ class MachineManager:
         live.supervisor = threading.Thread(target=run, name=name, daemon=True)
         live.supervisor.start()
 
-    def connect(self, machine_id: str, *, interactive: bool = True) -> None:
+    def connect(self, machine_id: str, *, interactive: bool = False) -> None:
         live = self._live.setdefault(machine_id, LiveConnection())
         if live.status in ("connected", "connecting", "asking"):
             return

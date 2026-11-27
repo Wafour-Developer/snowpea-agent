@@ -10507,7 +10507,14 @@ class MachineAsk(Payload):
         default=None,
         description="1.81.0 (capability machinePassword): ssh account for password asks.",
     )
-    question: str | None = None
+    question: str | None = Field(
+        default=None,
+        description=(
+            "1.81.0 (capability machinePassword): OpenSSH prompt text, sanitized. Clients "
+            'must show it as "<host> (remote server) asks: …" (quoted), never as a snowpea '
+            "message."
+        ),
+    )
     version: str | None = None
 
 
@@ -10573,6 +10580,7 @@ class MachineAnswerParams(Payload):
     answer: bool
     secret: str | None = Field(
         default=None,
+        repr=False,
         description=(
             "1.81.0 (capability machinePassword): password or key passphrase for a "
             "password ask when answer is true; never stored, logged or echoed."

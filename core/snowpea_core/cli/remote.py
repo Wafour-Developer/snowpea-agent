@@ -461,7 +461,14 @@ class RemoteSession:
         # would hand the forward to the master and exit, and its death would say nothing about
         # the tunnel.  An interactive session shares the master so a password is asked once.
         argv = self.ssh_argv(
-            "-N", "-o", "ExitOnForwardFailure=yes", "-L", forward, mux=not self._batch
+            "-N",
+            "-o",
+            "ExitOnForwardFailure=yes",
+            "-o",
+            "BatchMode=yes",
+            "-L",
+            forward,
+            mux=not self._batch,
         )
         self._tunnel = subprocess.Popen(  # noqa: S603 - argv is built from a validated target
             argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL

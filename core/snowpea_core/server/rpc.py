@@ -396,7 +396,9 @@ class RpcDispatcher:
 
 #: Params that carry a secret (1.56.0: the remote password again): a validation
 #: error of a call that holds one never echoes any input back.
-SECRET_PARAMS: frozenset[str] = frozenset({"reauth", "token", "password", "pastedKey"})
+SECRET_PARAMS: frozenset[str] = frozenset(
+    {"reauth", "token", "password", "pastedKey", "secret"}
+)
 
 
 def _without_secrets(exc: ValidationError, raw: dict[str, Any]) -> list[Any]:

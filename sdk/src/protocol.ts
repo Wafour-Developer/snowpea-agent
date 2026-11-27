@@ -4211,6 +4211,7 @@ export interface MachineAddResult {
     id: string;
     keyType?: string | null;
     kind: "hostKey" | "install" | "password" | "passphrase";
+    /** 1.81.0 (capability machinePassword): OpenSSH prompt text, sanitized. Clients must show it as "<host> (remote server) asks: …" (quoted), never as a snowpea message. */
     question?: string | null;
     /** 1.81.0 (capability machinePassword): ssh account for password asks. */
     user?: string | null;
@@ -4249,6 +4250,7 @@ export interface MachineAnswerResult {
     id: string;
     keyType?: string | null;
     kind: "hostKey" | "install" | "password" | "passphrase";
+    /** 1.81.0 (capability machinePassword): OpenSSH prompt text, sanitized. Clients must show it as "<host> (remote server) asks: …" (quoted), never as a snowpea message. */
     question?: string | null;
     /** 1.81.0 (capability machinePassword): ssh account for password asks. */
     user?: string | null;
@@ -4271,6 +4273,7 @@ export interface MachineConnectResult {
     id: string;
     keyType?: string | null;
     kind: "hostKey" | "install" | "password" | "passphrase";
+    /** 1.81.0 (capability machinePassword): OpenSSH prompt text, sanitized. Clients must show it as "<host> (remote server) asks: …" (quoted), never as a snowpea message. */
     question?: string | null;
     /** 1.81.0 (capability machinePassword): ssh account for password asks. */
     user?: string | null;
@@ -4303,6 +4306,7 @@ export interface MachineListResult {
       id: string;
       keyType?: string | null;
       kind: "hostKey" | "install" | "password" | "passphrase";
+      /** 1.81.0 (capability machinePassword): OpenSSH prompt text, sanitized. Clients must show it as "<host> (remote server) asks: …" (quoted), never as a snowpea message. */
       question?: string | null;
       /** 1.81.0 (capability machinePassword): ssh account for password asks. */
       user?: string | null;
@@ -4354,6 +4358,7 @@ export interface MachineUpdateResult {
     id: string;
     keyType?: string | null;
     kind: "hostKey" | "install" | "password" | "passphrase";
+    /** 1.81.0 (capability machinePassword): OpenSSH prompt text, sanitized. Clients must show it as "<host> (remote server) asks: …" (quoted), never as a snowpea message. */
     question?: string | null;
     /** 1.81.0 (capability machinePassword): ssh account for password asks. */
     user?: string | null;
@@ -11768,6 +11773,7 @@ export interface MachineChangedPayload {
       id: string;
       keyType?: string | null;
       kind: "hostKey" | "install" | "password" | "passphrase";
+      /** 1.81.0 (capability machinePassword): OpenSSH prompt text, sanitized. Clients must show it as "<host> (remote server) asks: …" (quoted), never as a snowpea message. */
       question?: string | null;
       /** 1.81.0 (capability machinePassword): ssh account for password asks. */
       user?: string | null;

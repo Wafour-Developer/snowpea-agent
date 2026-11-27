@@ -134,7 +134,7 @@ async def machine_connect_handler(
         raise RpcError(errors.NOT_FOUND, "machine not found", {"id": params.id})
     if rec.key_path:
         validate_key_path(rec.key_path)
-    manager.connect(params.id)
+    manager.connect(params.id, interactive=True)
     row = next((r for r in manager.rows() if r.id == params.id), None)
     if row is None:
         raise RpcError(errors.INTERNAL, "machine row missing after connect")

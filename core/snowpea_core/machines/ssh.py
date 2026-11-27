@@ -15,6 +15,7 @@ from typing import Any, Protocol
 
 from snowpea_core.cli import remote
 from snowpea_core.cli.remote import RemoteError, RemoteTarget, find_ssh_tool
+from snowpea_core.machines.ssh_askpass import SOCKET_ENV
 
 #: Key types, most preferred first, as ``ssh-keyscan -t`` and known_hosts name them.
 KEY_TYPES = ("ssh-ed25519", "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521",
@@ -62,6 +63,8 @@ def _exec(argv: Sequence[str]) -> subprocess.CompletedProcess[str]:
 def ssh_runner(
     emitter: _EmitterLike | None,
     extra_env: Callable[[], dict[str, str]] | None = None,
+    *,
+    on_spawn: Callable[[int], None] | None = None,
 ) -> remote.Runner:
     """``RemoteSession``'s runner: no stdin, stderr captured, stdout never the client's pipe."""
 
@@ -70,21 +73,52 @@ def ssh_runner(
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         if extra_env is not None:
-            env.update(extra_env())
+            extra = extra_env()
+            if extra:
+                env.update(extra)
+        timeout = 240 if capture else 1800
+        tracked = bool(extra_env and env.get(SOCKET_ENV))
         try:
-            done = subprocess.run(  # noqa: S603 - argv built from a validated target
-                list(argv),
-                input=stdin,
-                stdin=None if stdin is not None else subprocess.DEVNULL,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                stdout=subprocess.PIPE if capture else 2,  # fd 2: installer output → stderr
-                stderr=subprocess.PIPE,
-                check=False,
-                timeout=240 if capture else 1800,
-                env=env,
-            )
+            if tracked:
+                proc = subprocess.Popen(  # noqa: S603 - argv built from a validated target
+                    list(argv),
+                    stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    stdout=subprocess.PIPE if capture else 2,
+                    stderr=subprocess.PIPE,
+                    env=env,
+                )
+                if on_spawn is not None:
+                    on_spawn(proc.pid)
+                try:
+                    stdout, stderr = proc.communicate(input=stdin, timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    with contextlib.suppress(OSError):
+                        proc.wait(timeout=5)
+                    raise RemoteError("ssh did not answer in time", code="unreachable") from None
+                done = subprocess.CompletedProcess(
+                    proc.args,
+                    proc.returncode if proc.returncode is not None else proc.wait(),
+                    stdout,
+                    stderr,
+                )
+            else:
+                done = subprocess.run(  # noqa: S603 - argv built from a validated target
+                    list(argv),
+                    input=stdin,
+                    stdin=None if stdin is not None else subprocess.DEVNULL,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    stdout=subprocess.PIPE if capture else 2,  # fd 2: installer output → stderr
+                    stderr=subprocess.PIPE,
+                    check=False,
+                    timeout=timeout,
+                    env=env,
+                )
         except subprocess.TimeoutExpired as exc:
             raise RemoteError("ssh did not answer in time", code="unreachable") from exc
         except OSError as exc:

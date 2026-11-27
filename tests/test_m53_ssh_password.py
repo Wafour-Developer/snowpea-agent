@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -20,9 +21,12 @@ from snowpea_core.cli import remote
 from snowpea_core.machines.manager import MachineManager
 from snowpea_core.machines.ssh_askpass import (
     SOCKET_ENV,
+    TOKEN_ENV,
     AskpassRejected,
     SshAskpassBridge,
+    classify_prompt_kind,
     request_secret,
+    sanitize_ssh_prompt,
 )
 from snowpea_core.server import errors, protocol
 from snowpea_core.server.errors import RpcError
@@ -318,7 +322,7 @@ async def test_non_person_cannot_answer_password(password_stack: dict[str, Any])
     async with aiohttp.ClientSession() as http:
         client = await connect(http, daemon)
         mid = (await client.ok("machine.add", {"target": "me@box", "label": "box"}))["id"]
-        manager.connect(mid)
+        manager.connect(mid, interactive=True)
         await _accept_host_key(client, mid)
         row = await _wait_machine(client, mid, ask_kind="password", timeout=30)
         ask = row["ask"]
@@ -404,31 +408,196 @@ async def test_background_reconnect_never_prompts(
         await client.stop()
 
 
-def test_helper_rejects_bad_token() -> None:
+def _ssh_child_script(body: str) -> str:
+    return (
+        "import os, subprocess, sys\n"
+        f"{body}\n"
+    )
+
+
+@posix_only
+def test_helper_rejects_bad_token(tmp_path: Path) -> None:
     got: list[str] = []
 
     def cb(prompt: str) -> str | None:
         got.append(prompt)
         return "ok"
 
-    bridge = SshAskpassBridge(cb)
+    bridge = SshAskpassBridge(cb, home=tmp_path / "home")
     bridge.start()
+    env = bridge.env()
+    bad = _ssh_child_script(
+        "import socket\n"
+        f's=socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\n'
+        f's.connect({env[SOCKET_ENV]!r})\n'
+        's.sendall(b"bad-token\\n")\n'
+        's.sendall(b"prompt\\n")\n'
+        "line = s.recv(8)\n"
+        'sys.exit(0 if line[:1] == b"\\x01" else 1)\n'
+    )
+    holder = subprocess.Popen([sys.executable, "-c", bad], env={**os.environ, **env})
+    bridge.set_ssh_pid(holder.pid)
     try:
-        env = bridge.env()
-        with pytest.raises(AskpassRejected):
-            request_secret(env[SOCKET_ENV], "bad-token", "prompt")
+        assert holder.wait(timeout=10) == 0
     finally:
         bridge.stop()
     assert not got
 
 
-def test_socket_dir_cleaned_up() -> None:
-    bridge = SshAskpassBridge(lambda _p: "x")
+@posix_only
+def test_unrelated_process_cannot_ask(tmp_path: Path) -> None:
+    got: list[str] = []
+
+    def cb(prompt: str) -> str | None:
+        got.append(prompt)
+        return "x"
+
+    bridge = SshAskpassBridge(cb, home=tmp_path / "home")
+    bridge.start()
+    env = bridge.env()
+    sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(90)"])
+    bridge.set_ssh_pid(sleeper.pid)
+    try:
+        with pytest.raises(AskpassRejected):
+            request_secret(env[SOCKET_ENV], env[TOKEN_ENV], "rogue prompt")
+    finally:
+        sleeper.kill()
+        sleeper.wait(timeout=5)
+    legit_script = _ssh_child_script(
+        'r=subprocess.run([os.environ["SSH_ASKPASS"], "me@box password:"], '
+        "env=os.environ, check=False)\n"
+        "sys.exit(r.returncode)"
+    )
+    holder = subprocess.Popen(
+        [sys.executable, "-c", legit_script],
+        env={**os.environ, **env},
+    )
+    bridge.set_ssh_pid(holder.pid)
+    try:
+        assert holder.wait(timeout=10) == 0
+        assert got == ["me@box password:"]
+    finally:
+        bridge.stop()
+
+
+def test_prompt_sanitization_and_kind() -> None:
+    dirty = "me\x00@box\u202e password:"
+    clean = sanitize_ssh_prompt(dirty)
+    assert "\x00" not in clean and "\u202e" not in clean
+    assert len(sanitize_ssh_prompt("x" * 500)) <= 200
+    assert classify_prompt_kind("Enter passphrase for key /home/me/.ssh/id_rsa:") == "passphrase"
+    assert classify_prompt_kind("me@box's password:") == "password"
+
+
+def test_secret_param_redacts_validation_errors() -> None:
+    from pydantic import ValidationError
+
+    from snowpea_core.server import rpc
+
+    assert "secret" in rpc.SECRET_PARAMS
+    with pytest.raises(ValidationError) as caught:
+        MachineAnswerParams.model_validate(
+            {"id": "m1", "askId": "a1", "answer": True, "secret": 123}
+        )
+    errors = rpc._without_secrets(caught.value, {"secret": 123})  # noqa: SLF001
+    assert errors
+    assert "input" not in errors[0]
+
+
+def test_connect_defaults_non_interactive() -> None:
+    import inspect
+
+    sig = inspect.signature(MachineManager.connect)
+    assert sig.parameters["interactive"].default is False
+    sig_worker = inspect.signature(MachineManager._connect_worker)
+    assert sig_worker.parameters["interactive"].default is False
+
+
+def test_pending_ask_and_answer_hide_secrets() -> None:
+    from snowpea_core.machines.manager import PendingAsk
+
+    box = PendingAsk(kind="password", fields={})
+    box.secret.append("hunter2")
+    assert "hunter2" not in repr(box)
+    params = MachineAnswerParams(
+        id="m", askId="a", answer=True, secret="hunter2"
+    )
+    assert "hunter2" not in repr(params)
+
+
+@posix_only
+def test_bridge_decline_blocks_later_prompts(tmp_path: Path) -> None:
+    bridge = SshAskpassBridge(lambda _p: None, home=tmp_path / "home")
+    bridge.start()
+    env = bridge.env()
+
+    first = _ssh_child_script(
+        'try:\n'
+        "    from snowpea_core.machines.ssh_askpass import request_secret, AskpassRejected\n"
+        f'    request_secret({env[SOCKET_ENV]!r}, {env[TOKEN_ENV]!r}, "first")\n'
+        "except AskpassRejected:\n"
+        "    sys.exit(0)\n"
+        "sys.exit(1)"
+    )
+    second = _ssh_child_script(
+        'try:\n'
+        "    from snowpea_core.machines.ssh_askpass import request_secret, AskpassRejected\n"
+        f'    request_secret({env[SOCKET_ENV]!r}, {env[TOKEN_ENV]!r}, "second")\n'
+        "except AskpassRejected:\n"
+        "    sys.exit(0)\n"
+        "sys.exit(1)"
+    )
+    holder = subprocess.Popen(
+        [sys.executable, "-c", first],
+        env={**os.environ, **env},
+    )
+    bridge.set_ssh_pid(holder.pid)
+    try:
+        assert holder.wait(timeout=10) == 0
+        again = subprocess.Popen(
+            [sys.executable, "-c", second],
+            env={**os.environ, **env},
+        )
+        bridge.set_ssh_pid(again.pid)
+        assert again.wait(timeout=10) == 0
+    finally:
+        bridge.stop()
+
+
+@posix_only
+def test_non_ascii_token_does_not_crash_bridge(tmp_path: Path) -> None:
+    bridge = SshAskpassBridge(lambda _p: "ok", home=tmp_path / "home")
+    bridge.start()
+    env = bridge.env()
+    script = _ssh_child_script(
+        "import socket\n"
+        f's=socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\n'
+        f's.connect({env[SOCKET_ENV]!r})\n'
+        's.sendall(b"\\xff\\xfe\\n")\n'
+        's.sendall(b"prompt\\n")\n'
+        "s.recv(32)\n"
+    )
+    holder = subprocess.Popen(
+        [sys.executable, "-c", script],
+        env={**os.environ, **env},
+    )
+    bridge.set_ssh_pid(holder.pid)
+    try:
+        assert holder.wait(timeout=10) == 0
+    finally:
+        bridge.stop()
+
+
+def test_socket_dir_cleaned_up(tmp_path: Path) -> None:
+    bridge = SshAskpassBridge(lambda _p: "x", home=tmp_path / "home")
     bridge.start()
     path = bridge._dir  # noqa: SLF001
     assert path.is_dir()
+    run_base = tmp_path / "home" / "run"
+    assert run_base.is_dir()
     bridge.stop()
     assert not path.exists()
+    assert bridge.env() == {}
 
 
 @pytest.mark.asyncio
