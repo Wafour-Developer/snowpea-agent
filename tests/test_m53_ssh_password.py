@@ -6,6 +6,8 @@ import asyncio
 import json
 import logging
 import os
+import socket
+import struct
 import subprocess
 import sys
 import threading
@@ -17,14 +19,18 @@ import pytest
 import pytest_asyncio
 from _support import connect, make_daemon
 
+import snowpea_core.machines.ssh_askpass as ssh_askpass_mod
 from snowpea_core.cli import remote
 from snowpea_core.machines.manager import MachineManager
 from snowpea_core.machines.ssh_askpass import (
+    PROC_BSDINFO_PBI_PPID_OFF,
+    PROC_BSDINFO_START_SEC_OFF,
     SOCKET_ENV,
     TOKEN_ENV,
     AskpassRejected,
     SshAskpassBridge,
     classify_prompt_kind,
+    parse_proc_bsdinfo,
     request_secret,
     sanitize_ssh_prompt,
 )
@@ -598,6 +604,179 @@ def test_socket_dir_cleaned_up(tmp_path: Path) -> None:
     bridge.stop()
     assert not path.exists()
     assert bridge.env() == {}
+
+
+@posix_only
+def test_reused_ssh_pid_wrong_starttime_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    child_box: list[int] = []
+    reused_root = 424_242
+    phase = {"spawn": True}
+
+    def fake_fields(pid: int) -> tuple[int, str] | None:
+        if child_box and pid == child_box[0]:
+            return (reused_root, "child-st")
+        if pid == reused_root:
+            return (1, "st-old") if phase["spawn"] else (1, "new-st")
+        return ssh_askpass_mod._linux_proc_fields(pid)
+
+    monkeypatch.setattr(ssh_askpass_mod, "_proc_fields_reader", fake_fields)
+    bridge = SshAskpassBridge(lambda _p: "ok", home=tmp_path / "home")
+    bridge.start()
+    bridge.set_ssh_pid(reused_root)
+    phase["spawn"] = False
+    env = bridge.env()
+    script = _ssh_child_script(
+        "from snowpea_core.machines.ssh_askpass import request_secret, AskpassRejected\n"
+        "try:\n"
+        f'    request_secret({env[SOCKET_ENV]!r}, {env[TOKEN_ENV]!r}, "pw:")\n'
+        "except AskpassRejected:\n"
+        "    sys.exit(0)\n"
+        "sys.exit(1)"
+    )
+    proc = subprocess.Popen([sys.executable, "-c", script], env={**os.environ, **env})
+    child_box.append(proc.pid)
+    try:
+        assert proc.wait(timeout=10) == 0
+    finally:
+        bridge.stop()
+
+
+@posix_only
+def test_ssh_root_cleared_after_ssh_run(tmp_path: Path) -> None:
+    bridge = SshAskpassBridge(lambda _p: "x", home=tmp_path / "home")
+    bridge.start()
+    bridge.set_ssh_pid(os.getpid())
+    assert bridge._ssh_root is not None  # noqa: SLF001
+    bridge.finish_ssh_run()
+    assert bridge._ssh_root is None  # noqa: SLF001
+    bridge.stop()
+
+
+@posix_only
+def test_listener_closed_after_ssh_run(tmp_path: Path) -> None:
+    bridge = SshAskpassBridge(lambda _p: "x", home=tmp_path / "home")
+    bridge.start()
+    assert bridge.listener_open()
+    bridge.set_ssh_pid(os.getpid())
+    bridge.finish_ssh_run()
+    assert not bridge.listener_open()
+    bridge.stop()
+
+
+@posix_only
+def test_ask_slot_rechecks_declined(tmp_path: Path) -> None:
+    class _GateLock:
+        def __init__(self) -> None:
+            self._inner = threading.Lock()
+            self.at_pause = threading.Event()
+            self.go = threading.Event()
+
+        def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
+            if timeout != -1:
+                got = self._inner.acquire(blocking, timeout)
+            elif blocking:
+                got = self._inner.acquire(True)
+            else:
+                got = self._inner.acquire(False)
+            if got:
+                self.at_pause.set()
+                self.go.wait(timeout=5)
+            return got
+
+        def release(self) -> None:
+            self._inner.release()
+
+    gate_lock = _GateLock()
+    bridge = SshAskpassBridge(lambda _p: "ok", home=tmp_path / "home")
+    bridge._ask_slot = gate_lock  # noqa: SLF001
+    bridge.start()
+    bridge.set_ssh_pid(os.getpid())
+    env = bridge.env()
+    script = _ssh_child_script(
+        "from snowpea_core.machines.ssh_askpass import request_secret, AskpassRejected\n"
+        "try:\n"
+        f'    request_secret({env[SOCKET_ENV]!r}, {env[TOKEN_ENV]!r}, "hold")\n'
+        "except AskpassRejected:\n"
+        "    sys.exit(0)\n"
+        "sys.exit(1)"
+    )
+    proc = subprocess.Popen([sys.executable, "-c", script], env={**os.environ, **env})
+    try:
+        assert gate_lock.at_pause.wait(timeout=5)
+        bridge.note_declined()
+        gate_lock.go.set()
+        assert proc.wait(timeout=10) == 0
+    finally:
+        proc.kill()
+        proc.wait(timeout=5)
+        bridge.stop()
+
+
+def test_parse_proc_bsdinfo_fake_bytes() -> None:
+    blob = bytearray(PROC_BSDINFO_START_SEC_OFF + 16)
+    struct.pack_into("<I", blob, PROC_BSDINFO_PBI_PPID_OFF, 77)
+    struct.pack_into("<Q", blob, PROC_BSDINFO_START_SEC_OFF, 1_700_000_000)
+    struct.pack_into("<Q", blob, PROC_BSDINFO_START_SEC_OFF + 8, 42)
+    parsed = parse_proc_bsdinfo(bytes(blob))
+    assert parsed == (77, 1_700_000_000, 42)
+    assert parse_proc_bsdinfo(b"short") is None
+
+
+@posix_only
+def test_linux_so_peercred_missing_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    if not sys.platform.startswith("linux"):
+        pytest.skip("linux only")
+    monkeypatch.delattr(socket, "SO_PEERCRED", raising=False)
+    sock_a, sock_b = socket.socketpair()
+    try:
+        assert ssh_askpass_mod._peer_pid_linux(sock_b) is None
+    finally:
+        sock_a.close()
+        sock_b.close()
+
+
+@posix_only
+def test_run_dir_mode_0700(tmp_path: Path) -> None:
+    bridge = SshAskpassBridge(lambda _p: "x", home=tmp_path / "home")
+    bridge.start()
+    run_base = tmp_path / "home" / "run"
+    assert (run_base.stat().st_mode & 0o777) == 0o700
+    bridge.stop()
+
+
+@posix_only
+def test_run_dir_fallback_uses_mkdtemp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[str] = []
+
+    def fake_mkdtemp(*, prefix: str) -> str:
+        seen.append(prefix)
+        path = tmp_path / "fallback-ap"
+        path.mkdir()
+        return str(path)
+
+    monkeypatch.setattr(ssh_askpass_mod.tempfile, "mkdtemp", fake_mkdtemp)
+    monkeypatch.setattr(ssh_askpass_mod, "_SUN_PATH_MAX", 1)
+    bridge = SshAskpassBridge(lambda _p: "x", home=tmp_path / "home")
+    bridge.start()
+    assert seen == ["sp-ap-"]
+    bridge.stop()
+
+
+@posix_only
+def test_launcher_isolated_python(tmp_path: Path) -> None:
+    import snowpea_core
+
+    bridge = SshAskpassBridge(lambda _p: "x", home=tmp_path / "home")
+    bridge.start()
+    body = bridge._launcher.read_text(encoding="utf-8")  # noqa: SLF001
+    pkg_root = str(Path(snowpea_core.__file__).resolve().parent.parent)
+    assert "-E -s -P" in body
+    assert "sys.path.insert(0," in body
+    assert pkg_root in body
+    assert "snowpea_core.machines.ssh_askpass" in body
+    bridge.stop()
 
 
 @pytest.mark.asyncio

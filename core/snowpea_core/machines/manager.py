@@ -278,6 +278,7 @@ class MachineManager:
         try:
             extra_env = None
             on_spawn = None
+            on_finish = None
             if interactive and sys.platform != "win32":
                 bridge_holder: list[SshAskpassBridge | None] = [None]
 
@@ -297,13 +298,14 @@ class MachineManager:
                 bridge.start()
                 extra_env = bridge.env
                 on_spawn = bridge.set_ssh_pid
+                on_finish = bridge.finish_ssh_run
             session = RemoteSession(
                 target,
                 local_protocol=PROTOCOL_VERSION,
                 confirm=lambda q: asks.ask("install", question=q, version=__version__),
                 batch=not interactive,
                 ssh=ssh_bin,
-                run=ssh_runner(None, extra_env, on_spawn=on_spawn),
+                run=ssh_runner(None, extra_env, on_spawn=on_spawn, on_finish=on_finish),
             )
             host = HostKeys(session._ssh, asks, known_hosts=known)  # noqa: SLF001
             options = host.ensure(target)

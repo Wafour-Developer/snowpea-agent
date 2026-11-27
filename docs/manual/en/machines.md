@@ -75,7 +75,7 @@ Remote chat works for snowpea sessions only. It shows the machine's name as a ba
 - **Host keys are confirmed once.** A changed host key is refused until you remove the machine and add it again.
 - **Jarvis** manages a remote session or terminal only where that item's own Jarvis switch is on. It never uses trust, unrestricted mode or a dangerous option on a remote machine. A permission prompt on a remote machine is not answered by Jarvis; it goes to you.
 
-The ssh connection is yours: snowpea uses the `ssh` on this computer, with your keys, agent and `~/.ssh/config`. A password or key passphrase is asked for here, once, as before. While a connect attempt is open, OpenSSH may keep a ControlMaster socket; another process running as the same user on this computer can reuse that live SSH session, including to password-protected hosts.
+The ssh connection is yours: snowpea uses the `ssh` on this computer, with your keys, agent and `~/.ssh/config`. Password login asks once per connect for a single password prompt; keyboard-interactive two-step login (password then OTP) and “passphrase then password” on one connect are not supported, so use a key for such hosts. A key passphrase, when needed, is separate. As with any `SSH_ASKPASS` setup, other processes running as your own user on this computer are not a security boundary (the same as the ControlMaster note below). While a connect attempt is open, OpenSSH may keep a ControlMaster socket; another process running as the same user on this computer can reuse that live SSH session, including to password-protected hosts.
 
 ## Settings
 

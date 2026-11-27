@@ -65,6 +65,7 @@ def ssh_runner(
     extra_env: Callable[[], dict[str, str]] | None = None,
     *,
     on_spawn: Callable[[int], None] | None = None,
+    on_finish: Callable[[], None] | None = None,
 ) -> remote.Runner:
     """``RemoteSession``'s runner: no stdin, stderr captured, stdout never the client's pipe."""
 
@@ -93,18 +94,24 @@ def ssh_runner(
                 if on_spawn is not None:
                     on_spawn(proc.pid)
                 try:
-                    stdout, stderr = proc.communicate(input=stdin, timeout=timeout)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    with contextlib.suppress(OSError):
-                        proc.wait(timeout=5)
-                    raise RemoteError("ssh did not answer in time", code="unreachable") from None
-                done = subprocess.CompletedProcess(
-                    proc.args,
-                    proc.returncode if proc.returncode is not None else proc.wait(),
-                    stdout,
-                    stderr,
-                )
+                    try:
+                        stdout, stderr = proc.communicate(input=stdin, timeout=timeout)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        with contextlib.suppress(OSError):
+                            proc.wait(timeout=5)
+                        raise RemoteError(
+                            "ssh did not answer in time", code="unreachable"
+                        ) from None
+                    done = subprocess.CompletedProcess(
+                        proc.args,
+                        proc.returncode if proc.returncode is not None else proc.wait(),
+                        stdout,
+                        stderr,
+                    )
+                finally:
+                    if on_finish is not None:
+                        on_finish()
             else:
                 done = subprocess.run(  # noqa: S603 - argv built from a validated target
                     list(argv),
